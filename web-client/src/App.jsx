@@ -19,10 +19,6 @@ function api(path, options = {}) {
   })
 }
 
-function escapePath(path) {
-  return encodeURIComponent(path || '')
-}
-
 function dirname(path) {
   const parts = (path || '').split('/').filter(Boolean)
   parts.pop()
@@ -36,6 +32,24 @@ function formatBytes(bytes) {
   const mb = kb / 1024
   if (mb < 1024) return `${mb.toFixed(1)} MB`
   return `${(mb / 1024).toFixed(2)} GB`
+}
+
+function formatTime(value) {
+  if (!value) return '-'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '-'
+  return date.toLocaleString()
+}
+
+function pathCrumbs(path) {
+  const segments = (path || '').split('/').filter(Boolean)
+  const crumbs = [{ label: 'Root', path: '' }]
+  let current = ''
+  for (const segment of segments) {
+    current = current ? `${current}/${segment}` : segment
+    crumbs.push({ label: segment, path: current })
+  }
+  return crumbs
 }
 
 async function uploadOne(file, currentPath, folderUpload) {
@@ -59,6 +73,151 @@ async function uploadOne(file, currentPath, folderUpload) {
   }
 }
 
+function PairingView({ boot, busy, onQuickReconnect }) {
+  const pairQrSrc = useMemo(() => {
+    if (!boot?.pairQrPayload) return ''
+    return `/api/qr?value=${encodeURIComponent(boot.pairQrPayload)}`
+  }, [boot])
+
+  return (
+    <section className="pair-view">
+      <div className="pair-card glass-card">
+        <div className="pair-head">
+          <h2>Pair This Browser</h2>
+          <p>Scan this QR code with the MediaBus host app, or enter the pairing code manually.</p>
+        </div>
+        <div className="pair-code">{boot.pairCode}</div>
+        <div className="pair-meta">Token refreshes automatically until approved.</div>
+        {boot.quickPairAvailable && (
+          <button className="btn btn-primary" disabled={busy} onClick={onQuickReconnect}>
+            Quick Reconnect
+          </button>
+        )}
+      </div>
+      <div className="pair-qr-shell glass-card">
+        <img className="pair-qr" src={pairQrSrc} alt="Pairing QR" />
+      </div>
+    </section>
+  )
+}
+
+function DriveView({
+  busy,
+  path,
+  items,
+  log,
+  onUp,
+  onLoadPath,
+  onUploadFiles,
+  onUploadFolder,
+  onDisconnect,
+}) {
+  const crumbs = pathCrumbs(path)
+
+  return (
+    <section className="drive-layout">
+      <aside className="nav-rail glass-card">
+        <h3>MediaBus</h3>
+        <p>Private Drive</p>
+        <div className="nav-group">
+          <button className="nav-pill active" onClick={() => onLoadPath('')}>All Files</button>
+          <button className="nav-pill" onClick={onUp}>Parent Folder</button>
+        </div>
+        <div className="rail-foot">Secure local transfer</div>
+      </aside>
+
+      <div className="drive-main glass-card">
+        <header className="drive-header">
+          <div className="breadcrumbs">
+            {crumbs.map((crumb, index) => (
+              <button key={crumb.path || 'root'} className="crumb" onClick={() => onLoadPath(crumb.path)}>
+                {crumb.label}
+                {index < crumbs.length - 1 ? <span className="sep">/</span> : null}
+              </button>
+            ))}
+          </div>
+          <div className="header-right">
+            <span className="chip">{items.length} items</span>
+          </div>
+        </header>
+
+        <div className="toolbar modern-toolbar">
+          <button className="btn" disabled={busy} onClick={onUp}>Up</button>
+          <label className="btn btn-primary file-btn">
+            Upload Files
+            <input type="file" multiple onChange={(e) => onUploadFiles(e.currentTarget.files)} />
+          </label>
+          <label className="btn btn-primary file-btn">
+            Upload Folder
+            <input
+              type="file"
+              webkitdirectory=""
+              directory=""
+              multiple
+              onChange={(e) => onUploadFolder(e.currentTarget.files)}
+            />
+          </label>
+          <button className="btn btn-danger" disabled={busy} onClick={onDisconnect}>Disconnect</button>
+        </div>
+
+        <div className="status-row">
+          <span className="status-tag">Path</span>
+          <span className="status-path">/{path}</span>
+          <span className="status-log">{log}</span>
+        </div>
+
+        <div className="table-wrap modern-table-wrap">
+          <table className="modern-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Modified</th>
+                <th className="size-col">Size / Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((item) => (
+                item.directory ? (
+                  <tr key={item.path}>
+                    <td>
+                      <button className="row-name" onClick={() => onLoadPath(item.path)}>
+                        <span className="folder-icon">📁</span>
+                        {item.name}
+                      </button>
+                    </td>
+                    <td className="muted-cell">{formatTime(item.lastModified)}</td>
+                    <td className="size-cell">
+                      <a className="btn slim" href={`/api/files/download-zip?path=${encodeURIComponent(item.path)}`}>
+                        Download ZIP
+                      </a>
+                    </td>
+                  </tr>
+                ) : (
+                  <tr key={item.path}>
+                    <td>
+                      <div className="row-name static">
+                        <span className="file-icon">📄</span>
+                        {item.name}
+                      </div>
+                    </td>
+                    <td className="muted-cell">{formatTime(item.lastModified)}</td>
+                    <td className="size-cell">
+                      <span className="size-value">{formatBytes(item.size)}</span>
+                      <a className="btn slim" href={`/api/files/download?path=${encodeURIComponent(item.path)}`}>
+                        Download
+                      </a>
+                    </td>
+                  </tr>
+                )
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  )
+}
+
 export default function App() {
   const [boot, setBoot] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -73,10 +232,6 @@ export default function App() {
   const heartbeatRef = useRef(null)
 
   const paired = !!boot?.paired
-  const pairQrSrc = useMemo(() => {
-    if (!boot?.pairQrPayload) return ''
-    return `/api/qr?value=${encodeURIComponent(boot.pairQrPayload)}`
-  }, [boot])
 
   function clearTimers() {
     if (pairPollRef.current) {
@@ -91,7 +246,7 @@ export default function App() {
 
   async function loadPath(nextPath) {
     try {
-      const data = await api(`/api/files/list?path=${escapePath(nextPath)}`)
+      const data = await api(`/api/files/list?path=${encodeURIComponent(nextPath || '')}`)
       setPath(data.path || '')
       setItems(data.items || [])
       setLog('')
@@ -197,97 +352,40 @@ export default function App() {
 
   if (loading) {
     return (
-      <main className="shell">
-        <section className="panel"><p className="status">Loading MediaBus...</p></section>
+      <main className="drive-shell">
+        <section className="glass-card loading-card">Loading MediaBus Drive...</section>
       </main>
     )
   }
 
   return (
-    <main className="shell">
-      <section className="panel">
-        <header className="hero">
-          <h1>MediaBus</h1>
-          <p>Secure local file sharing</p>
-        </header>
+    <main className="drive-shell">
+      <header className="topbar">
+        <div>
+          <h1>MediaBus Drive</h1>
+          <p>Modern local file explorer</p>
+        </div>
+      </header>
 
-        {error && <div className="error">{error}</div>}
+      {error && <div className="error-banner">{error}</div>}
 
-        {!paired && boot && (
-          <section className="pairing">
-            <div className="pair-info">
-              <h2>Pair This Browser</h2>
-              <p>Scan the QR in the host app or enter this pairing code on host.</p>
-              <div className="pair-code">{boot.pairCode}</div>
-              {boot.quickPairAvailable && (
-                <button className="btn" disabled={busy} onClick={quickReconnect}>Quick Reconnect</button>
-              )}
-            </div>
-            <div className="pair-qr-wrap">
-              <img className="pair-qr" src={pairQrSrc} alt="Pairing QR" />
-            </div>
-          </section>
-        )}
+      {!paired && boot && (
+        <PairingView boot={boot} busy={busy} onQuickReconnect={quickReconnect} />
+      )}
 
-        {paired && (
-          <section className="files">
-            <div className="toolbar">
-              <button className="btn" disabled={busy} onClick={() => loadPath(dirname(path))}>Up</button>
-              <label className="btn file-btn">
-                Upload Files
-                <input
-                  type="file"
-                  multiple
-                  onChange={(e) => uploadFiles(e.currentTarget.files, false)}
-                />
-              </label>
-              <label className="btn file-btn">
-                Upload Folder
-                <input
-                  type="file"
-                  webkitdirectory=""
-                  directory=""
-                  multiple
-                  onChange={(e) => uploadFiles(e.currentTarget.files, true)}
-                />
-              </label>
-              <button className="btn btn-danger" disabled={busy} onClick={disconnect}>Disconnect</button>
-            </div>
-
-            <div className="path">Path: /{path}</div>
-            <div className="status">{log}</div>
-
-            <div className="table-wrap">
-              <table>
-                <tbody>
-                  {items.map((item) => (
-                    item.directory ? (
-                      <tr key={item.path}>
-                        <td>
-                          <button className="link-btn" onClick={() => loadPath(item.path)}>
-                            <span className="folder">📁</span> {item.name}
-                          </button>
-                        </td>
-                        <td className="size">
-                          <a className="btn slim" href={`/api/files/download-zip?path=${encodeURIComponent(item.path)}`}>Download ZIP</a>
-                        </td>
-                      </tr>
-                    ) : (
-                      <tr key={item.path}>
-                        <td>{item.name}</td>
-                        <td className="size">
-                          {formatBytes(item.size)}
-                          <a className="btn slim" href={`/api/files/download?path=${encodeURIComponent(item.path)}`}>Download</a>
-                        </td>
-                      </tr>
-                    )
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        )}
-      </section>
+      {paired && (
+        <DriveView
+          busy={busy}
+          path={path}
+          items={items}
+          log={log}
+          onUp={() => loadPath(dirname(path))}
+          onLoadPath={loadPath}
+          onUploadFiles={(files) => uploadFiles(files, false)}
+          onUploadFolder={(files) => uploadFiles(files, true)}
+          onDisconnect={disconnect}
+        />
+      )}
     </main>
   )
 }
