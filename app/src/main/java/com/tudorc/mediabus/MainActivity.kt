@@ -417,6 +417,8 @@ private fun HostControlPanel(
             }
         }
 
+        StatsCard(uiState = uiState)
+
         PairingControlsCard(
             serverOnline = uiState.serverRunning,
             serverTransitioning = uiState.serverTransitioning,
@@ -425,8 +427,6 @@ private fun HostControlPanel(
             onOpenManualPair = onOpenManualPair,
             onOpenAddress = onShowAddress,
         )
-
-        StatsCard(uiState = uiState)
     }
 }
 
