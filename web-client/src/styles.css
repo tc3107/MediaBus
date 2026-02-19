@@ -44,6 +44,7 @@ body {
   margin: 0;
   font-size: clamp(30px, 4vw, 44px);
   letter-spacing: -0.03em;
+  font-family: "JetBrains Mono", "Fira Code", "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
 }
 
 .topbar p {
@@ -274,6 +275,12 @@ body {
   color: #b8d6ff;
   font-size: 14px;
   min-height: 1em;
+}
+
+.status-log-line {
+  color: #b8d6ff;
+  font-size: 14px;
+  margin-bottom: 12px;
 }
 
 .transfer-progress {

@@ -191,11 +191,7 @@ function DriveView({
           <button className="btn btn-danger" disabled={busy} onClick={onDisconnect}>Disconnect</button>
         </div>
 
-        <div className="status-row">
-          <span className="status-tag">Path</span>
-          <span className="status-path">/{path}</span>
-          <span className="status-log">{log}</span>
-        </div>
+        {log && <div className="status-log-line">{log}</div>}
         <div className={`transfer-progress ${transfer.active ? 'active' : ''}`}>
           <div className="transfer-progress-head">
             <span className="transfer-label">{transfer.label || 'No transfer in progress'}</span>
@@ -645,7 +641,6 @@ export default function App() {
       <header className="topbar">
         <div>
           <h1>MediaBus Drive</h1>
-          <p>Modern local file explorer</p>
         </div>
       </header>
 
