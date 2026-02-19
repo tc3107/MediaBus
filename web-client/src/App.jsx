@@ -81,6 +81,7 @@ async function uploadOne(file, currentPath, folderUpload, batch, onProgress) {
     request.setRequestHeader('X-File-Name', file.name)
     if (batch?.id) request.setRequestHeader('X-MediaBus-Batch-Id', batch.id)
     if (batch?.totalFiles) request.setRequestHeader('X-MediaBus-Batch-Total', String(batch.totalFiles))
+    if (batch?.totalBytes) request.setRequestHeader('X-MediaBus-Batch-Bytes', String(batch.totalBytes))
     request.upload.onprogress = (event) => {
       if (!event.lengthComputable || typeof onProgress !== 'function') return
       onProgress(event.loaded, event.total)
@@ -422,6 +423,7 @@ export default function App() {
         ? crypto.randomUUID()
         : `batch-${Date.now()}-${Math.random().toString(16).slice(2)}`,
       totalFiles: files.length,
+      totalBytes,
     }
     const totalBytes = files.reduce((sum, file) => sum + (file.size || 0), 0)
     const totalFiles = files.length

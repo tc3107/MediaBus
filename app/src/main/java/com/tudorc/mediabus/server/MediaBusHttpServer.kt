@@ -418,12 +418,15 @@ class MediaBusHttpServer(
             } catch (_: Throwable) {
             } finally {
                 runCatching { pipeOut.close() }
-                ticket.close()
             }
         }
 
         val fileName = (node.name ?: "folder") + ".zip"
-        return newChunkedResponse(Response.Status.OK, "application/zip", pipeIn).apply {
+        return newChunkedResponse(
+            Response.Status.OK,
+            "application/zip",
+            TicketLifecycleInputStream(pipeIn, ticket),
+        ).apply {
             addHeader("Content-Disposition", "attachment; filename=\"${fileName.replace("\"", "")}\"")
             addHeader("Cache-Control", "no-store")
         }
@@ -455,12 +458,14 @@ class MediaBusHttpServer(
         val totalBytes = session.headers["content-length"]?.toLongOrNull() ?: -1L
         val batchId = session.headers["x-mediabus-batch-id"]?.takeIf { it.isNotBlank() }
         val batchTotalFiles = session.headers["x-mediabus-batch-total"]?.toIntOrNull() ?: 0
+        val batchTotalBytes = session.headers["x-mediabus-batch-bytes"]?.toLongOrNull() ?: 0L
         val ticket = runtime.beginTransfer(
             deviceId = auth.device.deviceId,
             direction = TransferDirection.Uploading,
             totalBytes = totalBytes,
             batchId = batchId,
             batchTotalFiles = batchTotalFiles,
+            batchTotalBytes = batchTotalBytes,
         ) ?: return newFixedLengthResponse(Response.Status.FORBIDDEN, MIME_PLAINTEXT, "Transfer unavailable")
         ServerLogger.i(
             LOG_COMPONENT,
@@ -952,6 +957,20 @@ private class TicketTrackingInputStream(
         }
         return count
     }
+
+    override fun close() {
+        runCatching { delegate.close() }
+        ticket.close()
+    }
+}
+
+private class TicketLifecycleInputStream(
+    private val delegate: InputStream,
+    private val ticket: HostRuntimeController.TransferTicket,
+) : InputStream() {
+    override fun read(): Int = delegate.read()
+
+    override fun read(b: ByteArray, off: Int, len: Int): Int = delegate.read(b, off, len)
 
     override fun close() {
         runCatching { delegate.close() }

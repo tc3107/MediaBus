@@ -43,6 +43,7 @@ class HostRuntimeController(
     private var currentUploadBatchTotalFiles = 0
     private var currentUploadBatchCompletedFiles = 0
     private var currentUploadBatchActiveFiles = 0
+    private var currentUploadBatchTotalBytes = 0L
 
     @Volatile
     private var showHiddenFiles = false
@@ -314,6 +315,7 @@ class HostRuntimeController(
         totalBytes: Long,
         batchId: String? = null,
         batchTotalFiles: Int = 0,
+        batchTotalBytes: Long = 0L,
     ): TransferTicket? {
         val runtime: DeviceRuntime
         val transfer: TransferInfo
@@ -332,16 +334,22 @@ class HostRuntimeController(
                     currentUploadBatchTotalFiles = batchTotalFiles
                     currentUploadBatchCompletedFiles = 0
                     currentUploadBatchActiveFiles = 0
-                    overallProcessTotalBytes = 0L
+                    currentUploadBatchTotalBytes = max(0L, batchTotalBytes)
+                    overallProcessTotalBytes = max(0L, batchTotalBytes)
                     overallProcessTransferredBytes = 0L
                 } else {
                     currentUploadBatchTotalFiles = max(currentUploadBatchTotalFiles, batchTotalFiles)
+                    if (batchTotalBytes > 0L) {
+                        currentUploadBatchTotalBytes = max(currentUploadBatchTotalBytes, batchTotalBytes)
+                        overallProcessTotalBytes = max(overallProcessTotalBytes, batchTotalBytes)
+                    }
                 }
             } else if (direction == TransferDirection.Uploading && normalizedBatchId == null && transferById.isEmpty()) {
                 currentUploadBatchId = null
                 currentUploadBatchTotalFiles = 0
                 currentUploadBatchCompletedFiles = 0
                 currentUploadBatchActiveFiles = 0
+                currentUploadBatchTotalBytes = 0L
             }
             runtime = deviceRuntime.getOrPut(deviceId) { DeviceRuntime() }
             runtime.queuedTransfers++
@@ -355,7 +363,10 @@ class HostRuntimeController(
                 generation = runtime.cancelGeneration,
                 batchId = normalizedBatchId,
             )
-            if (totalBytes > 0L) {
+            val usingBatchTotalBytes = currentUploadBatchId != null &&
+                normalizedBatchId == currentUploadBatchId &&
+                currentUploadBatchTotalBytes > 0L
+            if (totalBytes > 0L && !usingBatchTotalBytes) {
                 overallProcessTotalBytes += totalBytes
             }
             transferById[transfer.id] = transfer
@@ -445,6 +456,7 @@ class HostRuntimeController(
                             currentUploadBatchTotalFiles = 0
                             currentUploadBatchCompletedFiles = 0
                             currentUploadBatchActiveFiles = 0
+                            currentUploadBatchTotalBytes = 0L
                         }
                     }
                     if (currentTransfer != null) {
