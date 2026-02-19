@@ -18,6 +18,7 @@ import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 import java.net.InetAddress
+import java.net.SocketException
 import java.net.SocketTimeoutException
 import java.net.URLConnection
 import java.net.URLEncoder
@@ -57,10 +58,12 @@ class MediaBusHttpServer(
     }
 
     override fun serve(session: IHTTPSession): Response {
-        ServerLogger.d(
-            LOG_COMPONENT,
-            "Request ${session.method} ${session.uri} ip=${session.remoteIpAddress ?: "unknown"}",
-        )
+        if (shouldLogRequest(session)) {
+            ServerLogger.i(
+                LOG_COMPONENT,
+                "Request ${session.method} ${session.uri} ip=${session.remoteIpAddress ?: "unknown"}",
+            )
+        }
         return runCatching {
             when {
                 session.method == Method.GET && session.uri == "/" -> {
@@ -90,10 +93,6 @@ class MediaBusHttpServer(
 
                 session.method == Method.GET && session.uri == "/api/pair/status" -> {
                     handlePairStatus(session)
-                }
-
-                session.method == Method.POST && session.uri == "/api/pair/quick" -> {
-                    handleQuickPair(session)
                 }
 
                 session.method == Method.POST && session.uri == "/api/session/disconnect" -> {
@@ -193,8 +192,7 @@ class MediaBusHttpServer(
                 .put("pairCode", challenge.code)
                 .put("pairToken", challenge.token)
                 .put("pairExpiresAt", challenge.expiresAtEpochMs)
-                .put("pairQrPayload", pairPayload)
-                .put("quickPairAvailable", runtime.quickPairAvailable(cookie(session, trustCookieName))),
+                .put("pairQrPayload", pairPayload),
         )
         if (existingAnon == null) {
             setCookie(response, anonCookieName, anonId, maxAge = 60L * 60 * 24 * 90)
@@ -235,9 +233,7 @@ class MediaBusHttpServer(
                                 .put("reason", "max_clients"),
                         )
                     } else {
-                        val trustToken = runtime.createTrustCookie(deviceId)
                         val response = jsonResponse(JSONObject().put("status", "approved"))
-                        setCookie(response, trustCookieName, trustToken, maxAge = 60L * 60 * 24 * 30)
                         setCookie(response, sessionCookieName, sessionToken, maxAge = 60L * 60 * 12)
                         ServerLogger.i(LOG_COMPONENT, "pair/status approved deviceId=$deviceId ip=$ip")
                         response
@@ -250,21 +246,6 @@ class MediaBusHttpServer(
                 jsonResponse(JSONObject().put("status", "not_found"))
             }
         }
-    }
-
-    private fun handleQuickPair(session: IHTTPSession): Response {
-        val trustCookie = cookie(session, trustCookieName)
-        val ip = session.remoteIpAddress.orEmpty()
-        val sessionToken = runtime.createSessionFromTrust(trustCookie, ip)
-            ?: run {
-                ServerLogger.w(LOG_COMPONENT, "quick-pair denied ip=$ip")
-                return newFixedLengthResponse(Response.Status.UNAUTHORIZED, MIME_PLAINTEXT, "Quick pair unavailable")
-            }
-
-        val response = jsonResponse(JSONObject().put("status", "ok"))
-        setCookie(response, sessionCookieName, sessionToken, maxAge = 60L * 60 * 12)
-        ServerLogger.i(LOG_COMPONENT, "quick-pair success ip=$ip")
-        return response
     }
 
     private fun handleDisconnect(session: IHTTPSession): Response {
@@ -295,7 +276,6 @@ class MediaBusHttpServer(
             return newFixedLengthResponse(Response.Status.UNAUTHORIZED, MIME_PLAINTEXT, "Unauthorized")
         }
         runtime.heartbeat(auth.device.deviceId, ip)
-        ServerLogger.d(LOG_COMPONENT, "heartbeat ok deviceId=${auth.device.deviceId} ip=$ip")
         return jsonResponse(JSONObject().put("status", "ok"))
     }
 
@@ -331,10 +311,6 @@ class MediaBusHttpServer(
             .put("path", segments.joinToString("/"))
             .put("items", JSONArray(items))
             .put("showHiddenFiles", includeHidden)
-        ServerLogger.d(
-            LOG_COMPONENT,
-            "list files deviceId=${auth.device.deviceId} path=/${segments.joinToString("/")} count=${items.size}",
-        )
         return jsonResponse(payload)
     }
 
@@ -488,6 +464,14 @@ class MediaBusHttpServer(
                     .put("name", uniqueName),
             )
         }.getOrElse { throwable ->
+            if (isClientDisconnectError(throwable)) {
+                ServerLogger.i(
+                    LOG_COMPONENT,
+                    "upload aborted by client deviceId=${auth.device.deviceId} name=$uniqueName",
+                )
+                runCatching { outputFile.delete() }
+                return@getOrElse newFixedLengthResponse(Response.Status.NO_CONTENT, MIME_PLAINTEXT, "")
+            }
             ServerLogger.e(
                 LOG_COMPONENT,
                 "upload failed deviceId=${auth.device.deviceId} name=$uniqueName message=${throwable.message}",
@@ -916,6 +900,41 @@ class MediaBusHttpServer(
         return URLEncoder.encode(text, StandardCharsets.UTF_8.name())
     }
 
+    private fun shouldLogRequest(session: IHTTPSession): Boolean {
+        return when (session.uri) {
+            "/api/files/upload",
+            "/api/files/download",
+            "/api/files/download-zip",
+            "/api/files/delete",
+            "/api/files/mkdir",
+            "/api/files/rename",
+            "/api/session/disconnect",
+            -> true
+            else -> false
+        }
+    }
+
+    private fun isClientDisconnectError(throwable: Throwable): Boolean {
+        var current: Throwable? = throwable
+        while (current != null) {
+            if (current is SocketException) {
+                val message = current.message.orEmpty()
+                if (
+                    message.contains("socket is closed", ignoreCase = true) ||
+                    message.contains("broken pipe", ignoreCase = true) ||
+                    message.contains("connection reset", ignoreCase = true)
+                ) {
+                    return true
+                }
+            }
+            if (current is IOException && current.message.orEmpty().contains("cancelled", ignoreCase = true)) {
+                return true
+            }
+            current = current.cause
+        }
+        return false
+    }
+
     private fun clientShellHtml(): String {
         return runCatching {
             appContext.assets.open("web/index.html").bufferedReader().use { it.readText() }
@@ -925,7 +944,6 @@ class MediaBusHttpServer(
     }
 
     private companion object {
-        private const val trustCookieName = "mb_trust"
         private const val sessionCookieName = "mb_session"
         private const val anonCookieName = "mb_anon"
         private const val LOG_COMPONENT = "HttpServer"

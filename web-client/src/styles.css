@@ -316,6 +316,12 @@ body {
   font-weight: 700;
 }
 
+.transfer-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .transfer-track {
   height: 8px;
   border-radius: 999px;

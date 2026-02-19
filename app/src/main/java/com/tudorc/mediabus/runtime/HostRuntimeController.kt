@@ -55,6 +55,8 @@ class HostRuntimeController(
     private var allowDelete = true
 
     private val random = SecureRandom()
+    private var lastLoggedPairedCount: Int = -1
+    private var lastLoggedSettingsSignature: String? = null
 
     private val _pairedStatuses = MutableStateFlow<List<PairedDeviceStatus>>(emptyList())
     val pairedStatuses: StateFlow<List<PairedDeviceStatus>> = _pairedStatuses.asStateFlow()
@@ -76,7 +78,10 @@ class HostRuntimeController(
                     unknownIds.forEach { deviceRuntime.remove(it) }
                     cleanupExpiredLocked()
                     publishLocked()
-                    ServerLogger.d(LOG_COMPONENT, "Loaded paired devices=${pairedDevices.size}")
+                    if (lastLoggedPairedCount != pairedDevices.size) {
+                        lastLoggedPairedCount = pairedDevices.size
+                        ServerLogger.i(LOG_COMPONENT, "Paired devices loaded count=${pairedDevices.size}")
+                    }
                 }
             }
         }
@@ -86,10 +91,14 @@ class HostRuntimeController(
                 allowUpload = settings.allowUpload
                 allowDownload = settings.allowDownload
                 allowDelete = settings.allowDelete
-                ServerLogger.d(
-                    LOG_COMPONENT,
-                    "settings showHiddenFiles=${settings.showHiddenFiles} allowUpload=${settings.allowUpload} allowDownload=${settings.allowDownload} allowDelete=${settings.allowDelete}",
-                )
+                val signature = "${settings.showHiddenFiles}:${settings.allowUpload}:${settings.allowDownload}:${settings.allowDelete}"
+                if (lastLoggedSettingsSignature != signature) {
+                    lastLoggedSettingsSignature = signature
+                    ServerLogger.i(
+                        LOG_COMPONENT,
+                        "Settings updated showHiddenFiles=${settings.showHiddenFiles} allowUpload=${settings.allowUpload} allowDownload=${settings.allowDownload} allowDelete=${settings.allowDelete}",
+                    )
+                }
             }
         }
         scope.launch {
@@ -218,34 +227,6 @@ class HostRuntimeController(
             }
             revokedDeviceNotices.remove(deviceId)
             return "Access revoked by host"
-        }
-    }
-
-    fun quickPairAvailable(trustCookie: String?): Boolean {
-        val deviceId = parseTrustCookie(trustCookie) ?: return false
-        synchronized(lock) {
-            cleanupExpiredLocked()
-            return pairedDevices.containsKey(deviceId)
-        }
-    }
-
-    fun createTrustCookie(deviceId: String): String {
-        val payload = JSONObject()
-            .put("kind", "trust")
-            .put("deviceId", deviceId)
-            .put("exp", now() + TRUST_COOKIE_TTL_MS)
-        return tokenSigner.sign(payload)
-    }
-
-    fun createSessionFromTrust(trustCookie: String?, ipAddress: String): String? {
-        val deviceId = parseTrustCookie(trustCookie) ?: return null
-        synchronized(lock) {
-            cleanupExpiredLocked()
-            if (!pairedDevices.containsKey(deviceId)) {
-                return null
-            }
-            ServerLogger.i(LOG_COMPONENT, "Creating session from trust cookie deviceId=$deviceId ip=$ipAddress")
-            return createOrReplaceSessionLocked(deviceId, ipAddress)
         }
     }
 
@@ -520,15 +501,6 @@ class HostRuntimeController(
         return tokenSigner.sign(payload)
     }
 
-    private fun parseTrustCookie(cookie: String?): String? {
-        val payload = cookie?.let { tokenSigner.verify(it) } ?: return null
-        val exp = payload.optLong("exp")
-        if (exp <= now()) return null
-        if (payload.optString("kind") != "trust") return null
-        val deviceId = payload.optString("deviceId")
-        return deviceId.takeIf { it.isNotBlank() }
-    }
-
     private fun parseSessionCookie(cookie: String?): JSONObject? {
         val payload = cookie?.let { tokenSigner.verify(it) } ?: return null
         val exp = payload.optLong("exp")
@@ -789,7 +761,6 @@ class HostRuntimeController(
     companion object {
         private const val PAIR_CODE_TTL_MS = 2 * 60 * 1000L
         private const val SESSION_TTL_MS = 12 * 60 * 60 * 1000L
-        private const val TRUST_COOKIE_TTL_MS = 30L * 24 * 60 * 60 * 1000L
         private const val CONNECTED_WINDOW_MS = 12_000L
         private const val PRESENCE_TICK_MS = 1_500L
         private const val REVOKE_NOTICE_TTL_MS = 60_000L

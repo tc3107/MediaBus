@@ -175,35 +175,18 @@
     }
 
     function renderUnpaired(data) {
-      const quickButton = data.quickPairAvailable
-        ? '<button id="quickPairButton">Quick Reconnect</button>'
-        : '';
-
       content.innerHTML = `
         <div class="pair-grid">
           <div>
             <h2>Pair This Browser</h2>
             ${renderMessage("Scan this QR in the host app or type this code on host.")}
             <div class="code">${data.pairCode}</div>
-            ${quickButton}
           </div>
           <div>
             <img class="qr" alt="Pairing QR" src="/api/qr?value=${encodeURIComponent(data.pairQrPayload)}" />
           </div>
         </div>
       `;
-
-      const quickButtonNode = document.getElementById("quickPairButton");
-      if (quickButtonNode) {
-        quickButtonNode.addEventListener("click", async () => {
-          try {
-            await api("/api/pair/quick", { method: "POST" });
-            await bootstrap();
-          } catch (err) {
-            alert(err.message || "Quick pair failed");
-          }
-        });
-      }
 
       pairPoll = setInterval(async () => {
         try {

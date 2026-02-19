@@ -67,7 +67,7 @@ function pathCrumbs(path) {
   return crumbs
 }
 
-async function uploadOne(file, currentPath, folderUpload, batch, onProgress) {
+async function uploadOne(file, currentPath, folderUpload, batch, onProgress, onRequestCreated) {
   const relativeFolder = folderUpload && file.webkitRelativePath
     ? dirname(file.webkitRelativePath)
     : ''
@@ -77,6 +77,8 @@ async function uploadOne(file, currentPath, folderUpload, batch, onProgress) {
     const request = new XMLHttpRequest()
     request.open('PUT', url, true)
     request.withCredentials = true
+    request.timeout = 120000
+    if (typeof onRequestCreated === 'function') onRequestCreated(request)
     request.setRequestHeader('Content-Type', 'application/octet-stream')
     request.setRequestHeader('X-File-Name', file.name)
     if (batch?.id) request.setRequestHeader('X-MediaBus-Batch-Id', batch.id)
@@ -87,9 +89,9 @@ async function uploadOne(file, currentPath, folderUpload, batch, onProgress) {
       onProgress(event.loaded, event.total)
     }
     request.onerror = () => reject(new Error('Network error. Upload failed.'))
+    request.onabort = () => reject(new Error('Upload was cancelled.'))
     request.ontimeout = () => reject(new Error('Upload timed out. Check network and try again.'))
-    request.onreadystatechange = () => {
-      if (request.readyState !== XMLHttpRequest.DONE) return
+    request.onload = () => {
       if (request.status >= 200 && request.status < 300) {
         if (typeof onProgress === 'function') onProgress(file.size, file.size)
         resolve()
@@ -101,7 +103,7 @@ async function uploadOne(file, currentPath, folderUpload, batch, onProgress) {
   })
 }
 
-function PairingView({ boot, busy, onQuickReconnect }) {
+function PairingView({ boot }) {
   const pairQrSrc = useMemo(() => {
     if (!boot?.pairQrPayload) return ''
     return `/api/qr?value=${encodeURIComponent(boot.pairQrPayload)}`
@@ -116,11 +118,6 @@ function PairingView({ boot, busy, onQuickReconnect }) {
         </div>
         <div className="pair-code">{boot.pairCode}</div>
         <div className="pair-meta">Token refreshes automatically until approved.</div>
-        {boot.quickPairAvailable && (
-          <button className="btn btn-primary" disabled={busy} onClick={onQuickReconnect}>
-            Quick Reconnect
-          </button>
-        )}
       </div>
       <div className="pair-qr-shell glass-card">
         <img className="pair-qr" src={pairQrSrc} alt="Pairing QR" />
@@ -143,7 +140,7 @@ function DriveView({
   onDeleteItem,
   onCreateFolder,
   onRenameItem,
-  onDisconnect,
+  onCancelUpload,
 }) {
   const crumbs = pathCrumbs(path)
 
@@ -172,7 +169,10 @@ function DriveView({
               type="file"
               multiple
               disabled={busy || !permissions.allowUpload}
-              onChange={(e) => onUploadFiles(e.currentTarget.files)}
+              onChange={(e) => {
+                onUploadFiles(e.currentTarget.files)
+                e.currentTarget.value = ''
+              }}
             />
           </label>
           <label className="btn btn-primary file-btn" aria-disabled={!permissions.allowUpload}>
@@ -183,22 +183,31 @@ function DriveView({
               directory=""
               multiple
               disabled={busy || !permissions.allowUpload}
-              onChange={(e) => onUploadFolder(e.currentTarget.files)}
+              onChange={(e) => {
+                onUploadFolder(e.currentTarget.files)
+                e.currentTarget.value = ''
+              }}
             />
           </label>
           <button className="btn" disabled={busy || !permissions.allowUpload} onClick={onCreateFolder}>
             New Folder
           </button>
-          <button className="btn btn-danger" disabled={busy} onClick={onDisconnect}>Disconnect</button>
         </div>
 
         {log && <div className="status-log-line">{log}</div>}
         <div className={`transfer-progress ${transfer.active ? 'active' : ''}`}>
           <div className="transfer-progress-head">
             <span className="transfer-label">{transfer.label || 'No transfer in progress'}</span>
-            <span className="transfer-meta">
-              {transfer.active ? `${Math.round(transfer.progress * 100)}%` : ''}
-            </span>
+            <div className="transfer-head-actions">
+              <span className="transfer-meta">
+                {transfer.active ? `${Math.round(transfer.progress * 100)}%` : ''}
+              </span>
+              {transfer.active && (
+                <button className="btn slim btn-danger" onClick={onCancelUpload}>
+                  Cancel
+                </button>
+              )}
+            </div>
           </div>
           <div className="transfer-track">
             <div
@@ -236,10 +245,10 @@ function DriveView({
                     <td className="muted-cell">{formatTime(item.lastModified)}</td>
                     <td className="size-cell">
                       <a
-                        className={`btn slim ${!permissions.allowDownload ? 'disabled-link' : ''}`}
-                        href={permissions.allowDownload ? `/api/files/download-zip?path=${encodeURIComponent(item.path)}` : undefined}
+                        className={`btn slim ${busy || !permissions.allowDownload ? 'disabled-link' : ''}`}
+                        href={!busy && permissions.allowDownload ? `/api/files/download-zip?path=${encodeURIComponent(item.path)}` : undefined}
                         onClick={(event) => {
-                          if (!permissions.allowDownload) event.preventDefault()
+                          if (busy || !permissions.allowDownload) event.preventDefault()
                         }}
                       >
                         Download
@@ -272,10 +281,10 @@ function DriveView({
                     <td className="size-cell">
                       <span className="size-value">{formatBytes(item.size)}</span>
                       <a
-                        className={`btn slim ${!permissions.allowDownload ? 'disabled-link' : ''}`}
-                        href={permissions.allowDownload ? `/api/files/download?path=${encodeURIComponent(item.path)}` : undefined}
+                        className={`btn slim ${busy || !permissions.allowDownload ? 'disabled-link' : ''}`}
+                        href={!busy && permissions.allowDownload ? `/api/files/download?path=${encodeURIComponent(item.path)}` : undefined}
                         onClick={(event) => {
-                          if (!permissions.allowDownload) event.preventDefault()
+                          if (busy || !permissions.allowDownload) event.preventDefault()
                         }}
                       >
                         Download
@@ -331,6 +340,8 @@ export default function App() {
   const refreshInFlightRef = useRef(false)
   const currentPathRef = useRef('')
   const busyRef = useRef(false)
+  const activeUploadXhrRef = useRef(null)
+  const cancelUploadRef = useRef(false)
 
   const paired = !!boot?.paired
   const permissions = {
@@ -383,32 +394,6 @@ export default function App() {
     }
   }
 
-  async function quickReconnect() {
-    setBusy(true)
-    setError('')
-    try {
-      await api('/api/pair/quick', { method: 'POST' })
-      await bootstrap()
-    } catch (err) {
-      setError(friendlyErrorMessage(err.message || 'Quick reconnect failed'))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function disconnect() {
-    setBusy(true)
-    setError('')
-    try {
-      await api('/api/session/disconnect', { method: 'POST' })
-      await bootstrap()
-    } catch (err) {
-      setError(friendlyErrorMessage(err.message || 'Disconnect failed'))
-    } finally {
-      setBusy(false)
-    }
-  }
-
   async function uploadFiles(fileList, folderUpload) {
     if (!fileList || fileList.length === 0) return
     if (!permissions.allowUpload) {
@@ -418,18 +403,35 @@ export default function App() {
     setBusy(true)
     setError('')
     const files = Array.from(fileList)
+    const totalBytes = files.reduce((sum, file) => sum + (file.size || 0), 0)
+    const totalFiles = files.length
     const batch = {
       id: (typeof crypto !== 'undefined' && crypto.randomUUID)
         ? crypto.randomUUID()
         : `batch-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      totalFiles: files.length,
+      totalFiles,
       totalBytes,
     }
-    const totalBytes = files.reduce((sum, file) => sum + (file.size || 0), 0)
-    const totalFiles = files.length
     const uploadedBytesByName = new Map()
     let uploadedBytes = 0
     let doneFiles = 0
+    let lastUiUpdateMs = 0
+    cancelUploadRef.current = false
+    const updateTransferUi = (label, force = false) => {
+      const now = Date.now()
+      if (!force && now - lastUiUpdateMs < 80) return
+      lastUiUpdateMs = now
+      const progress = totalBytes > 0 ? Math.min(uploadedBytes / totalBytes, 1) : 0
+      setTransfer({
+        active: true,
+        label,
+        loadedBytes: uploadedBytes,
+        totalBytes,
+        doneFiles,
+        totalFiles,
+        progress,
+      })
+    }
     setTransfer({
       active: true,
       label: 'Preparing upload...',
@@ -441,6 +443,9 @@ export default function App() {
     })
     try {
       for (const file of files) {
+        if (cancelUploadRef.current) {
+          throw new Error('Upload was cancelled.')
+        }
         setLog(`Uploading ${file.webkitRelativePath || file.name}`)
         await uploadOne(file, path, folderUpload, batch, (loaded, total) => {
           const safeTotal = total > 0 ? total : file.size || 0
@@ -449,24 +454,12 @@ export default function App() {
           const previousSent = uploadedBytesByName.get(key) || 0
           uploadedBytesByName.set(key, currentSent)
           uploadedBytes += currentSent - previousSent
-          const progress = totalBytes > 0 ? Math.min(uploadedBytes / totalBytes, 1) : 0
-          setTransfer({
-            active: true,
-            label: `Uploading ${file.name}`,
-            loadedBytes: uploadedBytes,
-            totalBytes,
-            doneFiles,
-            totalFiles,
-            progress,
-          })
+          updateTransferUi(`Uploading ${file.name}`)
+        }, (request) => {
+          activeUploadXhrRef.current = request
         })
         doneFiles += 1
-        const fileProgress = totalBytes > 0 ? Math.min(uploadedBytes / totalBytes, 1) : doneFiles / totalFiles
-        setTransfer((prev) => ({
-          ...prev,
-          doneFiles,
-          progress: fileProgress,
-        }))
+        updateTransferUi(`Uploading ${file.name}`, true)
       }
       setLog('Upload complete')
       setTransfer({
@@ -480,14 +473,32 @@ export default function App() {
       })
       await loadPath(path)
     } catch (err) {
-      setError(friendlyErrorMessage(err.message || 'Upload failed'))
+      const message = friendlyErrorMessage(err.message || 'Upload failed')
+      if (String(message).toLowerCase().includes('cancel')) {
+        setLog('Upload cancelled')
+      } else {
+        setError(message)
+      }
       setTransfer((prev) => ({
         ...prev,
         active: false,
-        label: 'Upload failed',
+        label: String(message).toLowerCase().includes('cancel') ? 'Upload cancelled' : 'Upload failed',
       }))
     } finally {
+      activeUploadXhrRef.current = null
+      cancelUploadRef.current = false
       setBusy(false)
+    }
+  }
+
+  function cancelUpload() {
+    cancelUploadRef.current = true
+    const xhr = activeUploadXhrRef.current
+    if (xhr) {
+      try {
+        xhr.abort()
+      } catch (_) {
+      }
     }
   }
 
@@ -594,6 +605,7 @@ export default function App() {
 
     if (boot.paired) {
       heartbeatRef.current = setInterval(() => {
+        if (busyRef.current) return
         api('/api/heartbeat', { method: 'POST' }).catch(async (err) => {
           if (String(err?.message || '').toLowerCase().includes('revoked')) {
             setError('Connection revoked by host.')
@@ -649,7 +661,7 @@ export default function App() {
       {error && <div className="error-banner">{error}</div>}
 
       {!paired && boot && (
-        <PairingView boot={boot} busy={busy} onQuickReconnect={quickReconnect} />
+        <PairingView boot={boot} />
       )}
 
       {paired && (
@@ -667,7 +679,7 @@ export default function App() {
           onDeleteItem={deleteItem}
           onCreateFolder={createFolder}
           onRenameItem={renameItem}
-          onDisconnect={disconnect}
+          onCancelUpload={cancelUpload}
         />
       )}
     </main>

@@ -27,17 +27,19 @@ import com.tudorc.mediabus.util.ServerLogger
 import com.tudorc.mediabus.util.TokenSigner
 import fi.iki.elonen.NanoHTTPD
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import java.net.InetAddress
+import java.util.logging.Level
+import java.util.logging.Logger
 
 class MediaBusHostService : LifecycleService() {
     private val lock = Mutex()
@@ -45,6 +47,7 @@ class MediaBusHostService : LifecycleService() {
 
     private lateinit var repository: HostStoreRepository
     private lateinit var runtime: HostRuntimeController
+    private val runtimeReady = CompletableDeferred<Unit>()
 
     private var server: MediaBusHttpServer? = null
     private var activeFolderUri: Uri? = null
@@ -79,44 +82,53 @@ class MediaBusHostService : LifecycleService() {
     override fun onCreate() {
         super.onCreate()
         ServerLogger.i(LOG_COMPONENT, "Service created")
+        configureNanoHttpdLogging()
         createNotificationChannel()
 
         repository = HostStoreRepository(applicationContext)
-        val secret = runBlocking { repository.getOrCreateSigningSecret() }
-        runtime = HostRuntimeController(
-            repository = repository,
-            tokenSigner = TokenSigner(secret),
-            scope = lifecycleScope,
-        )
-        runtime.start()
-        runtimeRef = runtime
+        lifecycleScope.launch {
+            val secret = withContext(Dispatchers.IO) { repository.getOrCreateSigningSecret() }
+            runtime = HostRuntimeController(
+                repository = repository,
+                tokenSigner = TokenSigner(secret),
+                scope = lifecycleScope,
+            )
+            runtime.start()
+            runtimeRef = runtime
+            runtimeReady.complete(Unit)
+            _state.value = _state.value.copy(
+                pairedDevicesReady = true,
+                pairedDevices = runtime.pairedDeviceSnapshot(),
+                transferSummary = runtime.transferSummary.value,
+            )
 
-        lifecycleScope.launch {
-            runtime.pairedStatuses.collectLatest { statuses ->
-                _state.value = _state.value.copy(
-                    pairedDevicesReady = true,
-                    pairedDevices = statuses,
-                )
+            launch {
+                runtime.pairedStatuses.collectLatest { statuses ->
+                    _state.value = _state.value.copy(
+                        pairedDevicesReady = true,
+                        pairedDevices = statuses,
+                    )
+                }
             }
-        }
-        lifecycleScope.launch {
-            runtime.transferSummary.collectLatest { summary ->
-                _state.value = _state.value.copy(transferSummary = summary)
+            launch {
+                runtime.transferSummary.collectLatest { summary ->
+                    _state.value = _state.value.copy(transferSummary = summary)
+                }
             }
-        }
-        lifecycleScope.launch {
-            repository.settingsFlow.collectLatest { settings ->
-                preferredHostIp = settings.selectedHostIp
-                val latestIps = localIps()
-                _state.value = _state.value.copy(availableIps = latestIps)
-                val running = _state.value.running
-                val currentIp = activeIp?.hostAddress
-                if (running && !currentIp.isNullOrBlank() && !settings.selectedHostIp.isNullOrBlank()) {
-                    if (currentIp != settings.selectedHostIp) {
-                        lock.withLock {
-                            val folder = activeFolderUri
-                            if (folder != null) {
-                                startRuntime(folder, preserveStateMessage = true)
+            launch {
+                repository.settingsFlow.collectLatest { settings ->
+                    preferredHostIp = settings.selectedHostIp
+                    val latestIps = localIps()
+                    _state.value = _state.value.copy(availableIps = latestIps)
+                    val running = _state.value.running
+                    val currentIp = activeIp?.hostAddress
+                    if (running && !currentIp.isNullOrBlank() && !settings.selectedHostIp.isNullOrBlank()) {
+                        if (currentIp != settings.selectedHostIp) {
+                            lock.withLock {
+                                val folder = activeFolderUri
+                                if (folder != null) {
+                                    startRuntime(folder, preserveStateMessage = true)
+                                }
                             }
                         }
                     }
@@ -126,9 +138,9 @@ class MediaBusHostService : LifecycleService() {
 
         _state.value = _state.value.copy(
             availableIps = localIps(),
-            pairedDevicesReady = true,
-            pairedDevices = runtime.pairedDeviceSnapshot(),
-            transferSummary = runtime.transferSummary.value,
+            pairedDevicesReady = false,
+            pairedDevices = emptyList(),
+            transferSummary = TransferSummary(),
         )
 
         runCatching { connectivityManager.registerDefaultNetworkCallback(networkCallback) }
@@ -185,6 +197,7 @@ class MediaBusHostService : LifecycleService() {
                 )
                 lifecycleScope.launch {
                     lock.withLock {
+                        awaitRuntimeReady()
                         startRuntime(folderUri, preserveStateMessage = false)
                     }
                 }
@@ -203,6 +216,7 @@ class MediaBusHostService : LifecycleService() {
                 )
                 lifecycleScope.launch {
                     lock.withLock {
+                        awaitRuntimeReady()
                         stopRuntime(updateState = true)
                     }
                     stopForegroundCompat()
@@ -221,6 +235,7 @@ class MediaBusHostService : LifecycleService() {
     private fun scheduleNetworkRecheck() {
         lifecycleScope.launch {
             lock.withLock {
+                if (!runtimeReady.isCompleted) return@withLock
                 _state.value = _state.value.copy(availableIps = localIps())
                 val folder = activeFolderUri ?: return@withLock
                 if (server == null || restartingForIpChange) {
@@ -251,6 +266,7 @@ class MediaBusHostService : LifecycleService() {
         folderUri: Uri,
         preserveStateMessage: Boolean,
     ) {
+        awaitRuntimeReady()
         ServerLogger.i(LOG_COMPONENT, "Starting runtime preserveStateMessage=$preserveStateMessage folderUri=$folderUri")
         _state.value = _state.value.copy(
             transitioning = true,
@@ -369,6 +385,7 @@ class MediaBusHostService : LifecycleService() {
     }
 
     private suspend fun stopRuntime(updateState: Boolean) {
+        awaitRuntimeReady()
         ServerLogger.i(LOG_COMPONENT, "Stopping runtime updateState=$updateState")
         withContext(Dispatchers.IO) {
             runCatching { server?.stop() }
@@ -404,10 +421,16 @@ class MediaBusHostService : LifecycleService() {
             statusText = if (errorMessage == null) "Server offline" else "Server stopped",
             error = errorMessage,
             availableIps = localIps(),
-            pairedDevices = runtime.pairedDeviceSnapshot(),
-            pairedDevicesReady = true,
+            pairedDevices = if (::runtime.isInitialized) runtime.pairedDeviceSnapshot() else emptyList(),
+            pairedDevicesReady = ::runtime.isInitialized,
             transferSummary = TransferSummary(),
         )
+    }
+
+    private suspend fun awaitRuntimeReady() {
+        if (!runtimeReady.isCompleted) {
+            runtimeReady.await()
+        }
     }
 
     private fun chooseBindIp(): InetAddress? {
@@ -503,6 +526,23 @@ class MediaBusHostService : LifecycleService() {
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .build()
+    }
+
+    private fun configureNanoHttpdLogging() {
+        runCatching {
+            val logger = Logger.getLogger(NanoHTTPD::class.java.name)
+            logger.filter = java.util.logging.Filter { record ->
+                val message = record.message.orEmpty()
+                val isExpectedClientAbort = message.contains(
+                    "Could not send response to the client",
+                    ignoreCase = true,
+                )
+                !isExpectedClientAbort
+            }
+            logger.level = Level.INFO
+        }.onFailure { throwable ->
+            ServerLogger.w(LOG_COMPONENT, "Failed configuring NanoHTTPD logger: ${throwable.message}")
+        }
     }
 
     companion object {

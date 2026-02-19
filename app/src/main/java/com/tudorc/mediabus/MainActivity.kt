@@ -215,11 +215,6 @@ class MainActivity : ComponentActivity() {
                             MediaBusHaptics.performTap(context)
                             viewModel.onAllowDelete(enabled)
                         },
-                        onRevokeDevice = { deviceId ->
-                            MediaBusHaptics.performTap(context)
-                            viewModel.revokeDevice(deviceId)
-                            scope.launch { snackbarHostState.showSnackbar(getString(R.string.device_revoked)) }
-                        },
                         modifier = Modifier.padding(innerPadding),
                     )
 
@@ -296,7 +291,6 @@ private fun HostControlPanel(
     onToggleAllowUpload: (Boolean) -> Unit,
     onToggleAllowDownload: (Boolean) -> Unit,
     onToggleAllowDelete: (Boolean) -> Unit,
-    onRevokeDevice: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -354,21 +348,31 @@ private fun HostControlPanel(
                         else stringResource(R.string.start_server),
                     )
                 }
-
-                FilledTonalButton(
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    onClick = {
-                        MediaBusHaptics.performTap(context)
-                        permissionsExpanded = !permissionsExpanded
-                    },
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
+                    FilledTonalButton(
+                        modifier = Modifier.weight(1f),
+                        onClick = onSelectFolder,
                     ) {
-                        Text(stringResource(R.string.permissions_title))
-                        Text(if (permissionsExpanded) "▴" else "▾")
+                        Text(stringResource(R.string.select_folder))
+                    }
+                    FilledTonalButton(
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            MediaBusHaptics.performTap(context)
+                            permissionsExpanded = !permissionsExpanded
+                        },
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(stringResource(R.string.permissions_title))
+                            Text(if (permissionsExpanded) "▴" else "▾")
+                        }
                     }
                 }
 
@@ -416,102 +420,13 @@ private fun HostControlPanel(
         PairingControlsCard(
             serverOnline = uiState.serverRunning,
             serverTransitioning = uiState.serverTransitioning,
+            connectedDeviceCount = uiState.pairedDevices.count { it.presence != DevicePresence.Disconnected },
             onOpenScanner = onOpenScanner,
             onOpenManualPair = onOpenManualPair,
             onOpenAddress = onShowAddress,
         )
 
         StatsCard(uiState = uiState)
-
-        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                Text(
-                    text = stringResource(R.string.shared_folder_title),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    text = uiState.folderDisplayName,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = if (uiState.hasValidFolder) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    FilledTonalButton(onClick = onSelectFolder) {
-                        Text(stringResource(R.string.select_folder))
-                    }
-                }
-            }
-        }
-
-        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                Text(
-                    text = stringResource(R.string.paired_devices_title),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                if (uiState.pairedDevices.isEmpty()) {
-                    Text(
-                        text = stringResource(R.string.no_paired_devices),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                } else {
-                    uiState.pairedDevices.forEach { status ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Row(
-                                modifier = Modifier.weight(1f),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                StatusDot(color = when (status.presence) {
-                                    DevicePresence.Disconnected -> Color(0xFFD95C5C)
-                                    DevicePresence.Connected -> Color(0xFF2FC16A)
-                                    DevicePresence.Transferring -> Color(0xFF4FA8FF)
-                                })
-                                Column {
-                                    Text(text = status.device.displayName, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text(
-                                        text = status.device.lastKnownIp,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                    Text(
-                                        text = stringResource(
-                                            R.string.last_seen_label,
-                                            Formatters.formatTimestamp(status.device.lastConnectedEpochMs),
-                                        ),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                            }
-                            TextButton(onClick = { onRevokeDevice(status.device.deviceId) }) {
-                                Text(text = stringResource(R.string.revoke), color = MaterialTheme.colorScheme.error)
-                            }
-                        }
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -580,6 +495,7 @@ private fun StatsCard(uiState: HostControlUiState) {
     } else {
         0f
     }
+    val statsBorderBrush = animatedStatusBorderBrush(Color(0xFF4FA8FF))
     Card(
         colors = CardDefaults.cardColors(
             containerColor = if (isActive) {
@@ -588,6 +504,8 @@ private fun StatsCard(uiState: HostControlUiState) {
                 MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
             },
         ),
+        shape = RoundedCornerShape(16.dp),
+        border = if (isActive) BorderStroke(width = 2.dp, brush = statsBorderBrush) else null,
     ) {
         Column(
             modifier = Modifier
@@ -686,6 +604,7 @@ private fun WebServerAccessibilityStatus(uiState: HostControlUiState) {
 private fun PairingControlsCard(
     serverOnline: Boolean,
     serverTransitioning: Boolean,
+    connectedDeviceCount: Int,
     onOpenScanner: () -> Unit,
     onOpenManualPair: () -> Unit,
     onOpenAddress: () -> Unit,
@@ -696,75 +615,88 @@ private fun PairingControlsCard(
     val pairingEnabled = serverOnline && !serverTransitioning
     val qrClickable = pairingEnabled && !openingAddress
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(
-                    text = stringResource(R.string.pairing_controls_title),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                FilledTonalButton(
-                    onClick = onOpenScanner,
-                    enabled = pairingEnabled,
-                ) {
-                    Text(stringResource(R.string.scan_pair_qr))
-                }
-                FilledTonalButton(
-                    onClick = onOpenManualPair,
-                    enabled = pairingEnabled,
-                ) {
-                    Text(stringResource(R.string.enter_pair_code))
-                }
-            }
-            Box(
-                modifier = Modifier
-                    .size(104.dp)
-                    .clickable(
-                        enabled = qrClickable,
-                        onClick = {
-                            if (!pairingEnabled) return@clickable
-                            openingAddress = true
-                            onOpenAddress()
-                            scope.launch {
-                                runCatching { playAddressOpenHaptic(context) }
-                                openingAddress = false
-                            }
-                        },
-                ),
-                contentAlignment = Alignment.Center,
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (pairingEnabled) {
-                    Box(
-                        modifier = Modifier
-                            .size(104.dp)
-                            .border(
-                                width = 2.5.dp,
-                                brush = animatedQrGlowBrush(),
-                                shape = RoundedCornerShape(18.dp),
-                            ),
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = stringResource(R.string.pairing_controls_title),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    FilledTonalButton(
+                        onClick = onOpenScanner,
+                        enabled = pairingEnabled,
+                    ) {
+                        Text(stringResource(R.string.scan_pair_qr))
+                    }
+                    FilledTonalButton(
+                        onClick = onOpenManualPair,
+                        enabled = pairingEnabled,
+                    ) {
+                        Text(stringResource(R.string.enter_pair_code))
+                    }
+                }
+                Box(
+                    modifier = Modifier
+                        .size(104.dp)
+                        .clickable(
+                            enabled = qrClickable,
+                            onClick = {
+                                if (!pairingEnabled) return@clickable
+                                openingAddress = true
+                                onOpenAddress()
+                                scope.launch {
+                                    runCatching { playAddressOpenHaptic(context) }
+                                    openingAddress = false
+                                }
+                            },
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (pairingEnabled) {
+                        Box(
+                            modifier = Modifier
+                                .size(104.dp)
+                                .border(
+                                    width = 2.5.dp,
+                                    brush = animatedQrGlowBrush(),
+                                    shape = RoundedCornerShape(18.dp),
+                                ),
+                        )
+                    }
+                    QrCode(
+                        url = "https://${MediaBusHostService.DEFAULT_HOST_NAME}:${MediaBusHostService.SERVER_PORT}",
+                        modifier = Modifier.border(
+                            width = 1.5.dp,
+                            color = Color(0xFF8A8A8A),
+                            shape = RoundedCornerShape(14.dp),
+                        ),
+                        size = 94.dp,
+                        reverseContrast = !pairingEnabled,
                     )
                 }
-                QrCode(
-                    url = "https://${MediaBusHostService.DEFAULT_HOST_NAME}:${MediaBusHostService.SERVER_PORT}",
-                    modifier = Modifier.border(
-                        width = 1.5.dp,
-                        color = Color(0xFF8A8A8A),
-                        shape = RoundedCornerShape(14.dp),
-                    ),
-                    size = 94.dp,
-                    reverseContrast = !pairingEnabled,
-                )
             }
+            Text(
+                text = stringResource(R.string.connected_devices_count, connectedDeviceCount),
+                style = MaterialTheme.typography.bodySmall,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+                color = if (connectedDeviceCount == 0) {
+                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            )
         }
     }
 }
-
 @Composable
 private fun animatedQrGlowBrush(): Brush {
     val transition = rememberInfiniteTransition(label = "qr-button-glow")
