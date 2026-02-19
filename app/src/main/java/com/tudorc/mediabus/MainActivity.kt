@@ -29,17 +29,20 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledTonalButton
@@ -68,6 +71,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
@@ -100,6 +104,16 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+private val TitleBlue = Color(0xFFBFE4FF)
+
+@Composable
+private fun controlButtonColors() = ButtonDefaults.filledTonalButtonColors(
+    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+    contentColor = TitleBlue,
+    disabledContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.55f),
+    disabledContentColor = TitleBlue.copy(alpha = 0.58f),
+)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -167,57 +181,95 @@ class MainActivity : ComponentActivity() {
 
                 Scaffold(
                     modifier = Modifier.fillMaxSize(),
+                    containerColor = Color.Transparent,
                     snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
                 ) { innerPadding ->
-                    HostControlPanel(
-                        uiState = uiState,
-                        onSelectFolder = {
-                            MediaBusHaptics.performTap(context)
-                            folderPicker.launch(null)
-                        },
-                        onToggleServer = {
-                            if (uiState.serverTransitioning) return@HostControlPanel
-                            MediaBusHaptics.performTap(context)
-                            if (uiState.serverRunning) viewModel.stopServer() else viewModel.startServer()
-                        },
-                        onShowAddress = {
-                            MediaBusHaptics.performTap(context)
-                            showAddressDialog = true
-                        },
-                        onOpenManualPair = {
-                            MediaBusHaptics.performTap(context)
-                            showCodeDialog = true
-                        },
-                        onOpenScanner = {
-                            MediaBusHaptics.performTap(context)
-                            val granted = ContextCompat.checkSelfPermission(
-                                context,
-                                Manifest.permission.CAMERA,
-                            ) == PackageManager.PERMISSION_GRANTED
-                            if (granted) {
-                                showScanner = true
-                            } else {
-                                cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
-                            }
-                        },
-                        onToggleHiddenFiles = { enabled ->
-                            MediaBusHaptics.performTap(context)
-                            viewModel.onShowHiddenFiles(enabled)
-                        },
-                        onToggleAllowUpload = { enabled ->
-                            MediaBusHaptics.performTap(context)
-                            viewModel.onAllowUpload(enabled)
-                        },
-                        onToggleAllowDownload = { enabled ->
-                            MediaBusHaptics.performTap(context)
-                            viewModel.onAllowDownload(enabled)
-                        },
-                        onToggleAllowDelete = { enabled ->
-                            MediaBusHaptics.performTap(context)
-                            viewModel.onAllowDelete(enabled)
-                        },
-                        modifier = Modifier.padding(innerPadding),
-                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .drawWithCache {
+                                val linear = Brush.linearGradient(
+                                    colorStops = arrayOf(
+                                        0.0f to Color(0xFF19253D),
+                                        0.58f to Color(0xFF0A0E16),
+                                        1.0f to Color(0xFF0A0E16),
+                                    ),
+                                    start = Offset(size.width * 0.58f, 0f),
+                                    end = Offset(size.width * 0.42f, size.height),
+                                )
+                                val topLeftGlow = Brush.radialGradient(
+                                    colors = listOf(
+                                        Color(0x38578CFF),
+                                        Color.Transparent,
+                                    ),
+                                    center = Offset(size.width * 0.08f, size.height * -0.10f),
+                                    radius = size.maxDimension * 0.38f,
+                                )
+                                val topRightGlow = Brush.radialGradient(
+                                    colors = listOf(
+                                        Color(0x3358D1FF),
+                                        Color.Transparent,
+                                    ),
+                                    center = Offset(size.width * 0.88f, size.height * 0.08f),
+                                    radius = size.maxDimension * 0.36f,
+                                )
+                                onDrawBehind {
+                                    drawRect(brush = linear)
+                                    drawRect(brush = topLeftGlow)
+                                    drawRect(brush = topRightGlow)
+                                }
+                            },
+                    ) {
+                        HostControlPanel(
+                            uiState = uiState,
+                            onSelectFolder = {
+                                MediaBusHaptics.performTap(context)
+                                folderPicker.launch(null)
+                            },
+                            onToggleServer = {
+                                if (uiState.serverTransitioning) return@HostControlPanel
+                                MediaBusHaptics.performTap(context)
+                                if (uiState.serverRunning) viewModel.stopServer() else viewModel.startServer()
+                            },
+                            onShowAddress = {
+                                MediaBusHaptics.performTap(context)
+                                showAddressDialog = true
+                            },
+                            onOpenManualPair = {
+                                MediaBusHaptics.performTap(context)
+                                showCodeDialog = true
+                            },
+                            onOpenScanner = {
+                                MediaBusHaptics.performTap(context)
+                                val granted = ContextCompat.checkSelfPermission(
+                                    context,
+                                    Manifest.permission.CAMERA,
+                                ) == PackageManager.PERMISSION_GRANTED
+                                if (granted) {
+                                    showScanner = true
+                                } else {
+                                    cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                                }
+                            },
+                            onToggleHiddenFiles = { enabled ->
+                                MediaBusHaptics.performTap(context)
+                                viewModel.onShowHiddenFiles(enabled)
+                            },
+                            onToggleAllowUpload = { enabled ->
+                                MediaBusHaptics.performTap(context)
+                                viewModel.onAllowUpload(enabled)
+                            },
+                            onToggleAllowDownload = { enabled ->
+                                MediaBusHaptics.performTap(context)
+                                viewModel.onAllowDownload(enabled)
+                            },
+                            onToggleAllowDelete = { enabled ->
+                                MediaBusHaptics.performTap(context)
+                                viewModel.onAllowDelete(enabled)
+                            },
+                            modifier = Modifier.padding(innerPadding),
+                        )
+                    }
 
                     if (showAddressDialog) {
                         AddressDialog(
@@ -307,6 +359,7 @@ private fun HostControlPanel(
             text = stringResource(R.string.host_panel_title),
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.SemiBold,
+            color = TitleBlue,
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -319,9 +372,12 @@ private fun HostControlPanel(
         }
         val borderBrush = animatedStatusBorderBrush(borderColor)
         Card(
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f),
+            ),
             shape = RoundedCornerShape(16.dp),
             border = BorderStroke(width = 2.dp, brush = borderBrush),
+            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
         ) {
             Column(
                 modifier = Modifier
@@ -333,6 +389,7 @@ private fun HostControlPanel(
                     text = stringResource(R.string.server_controls_title),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
+                    color = TitleBlue,
                 )
                 Text(text = uiState.statusText, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 WebServerAccessibilityStatus(uiState = uiState)
@@ -356,6 +413,7 @@ private fun HostControlPanel(
                     FilledTonalButton(
                         modifier = Modifier.weight(1f),
                         onClick = onSelectFolder,
+                        colors = controlButtonColors(),
                     ) {
                         Text(stringResource(R.string.select_folder))
                     }
@@ -365,6 +423,7 @@ private fun HostControlPanel(
                             MediaBusHaptics.performTap(context)
                             permissionsExpanded = !permissionsExpanded
                         },
+                        colors = controlButtonColors(),
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -382,12 +441,12 @@ private fun HostControlPanel(
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(
-                                color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.55f),
+                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
                                 shape = RoundedCornerShape(12.dp),
                             )
                             .border(
                                 width = 1.dp,
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f),
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.85f),
                                 shape = RoundedCornerShape(12.dp),
                             )
                             .padding(horizontal = 12.dp, vertical = 8.dp),
@@ -418,8 +477,6 @@ private fun HostControlPanel(
             }
         }
 
-        StatsCard(uiState = uiState)
-
         PairingControlsCard(
             serverOnline = uiState.serverRunning,
             serverTransitioning = uiState.serverTransitioning,
@@ -428,6 +485,8 @@ private fun HostControlPanel(
             onOpenManualPair = onOpenManualPair,
             onOpenAddress = onShowAddress,
         )
+
+        StatsCard(uiState = uiState)
     }
 }
 
@@ -445,6 +504,7 @@ private fun SettingToggleRow(
         Text(
             text = label,
             style = MaterialTheme.typography.bodySmall,
+            color = TitleBlue.copy(alpha = 0.94f),
         )
         Switch(
             checked = checked,
@@ -520,13 +580,14 @@ private fun StatsCard(uiState: HostControlUiState) {
     Card(
         colors = CardDefaults.cardColors(
             containerColor = if (isActive) {
-                MaterialTheme.colorScheme.surfaceContainerLow
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.96f)
             } else {
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.88f)
             },
         ),
         shape = RoundedCornerShape(16.dp),
         border = if (isActive) BorderStroke(width = 2.dp, brush = statsBorderBrush) else null,
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isActive) 10.dp else 6.dp),
     ) {
         Column(
             modifier = Modifier
@@ -538,6 +599,7 @@ private fun StatsCard(uiState: HostControlUiState) {
                 text = stringResource(R.string.stats_title),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
+                color = TitleBlue,
             )
             if (!isActive) {
                 Text(
@@ -635,9 +697,16 @@ private fun PairingControlsCard(
     var openingAddress by remember { mutableStateOf(false) }
     val pairingEnabled = serverOnline && !serverTransitioning
     val qrClickable = pairingEnabled && !openingAddress
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f),
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+    ) {
         Column(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Row(
@@ -650,18 +719,33 @@ private fun PairingControlsCard(
                         text = stringResource(R.string.pairing_controls_title),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
+                        color = TitleBlue,
                     )
-                    FilledTonalButton(
-                        onClick = onOpenScanner,
-                        enabled = pairingEnabled,
+                    Column(
+                        modifier = Modifier.width(IntrinsicSize.Max),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        Text(stringResource(R.string.scan_pair_qr))
-                    }
-                    FilledTonalButton(
-                        onClick = onOpenManualPair,
-                        enabled = pairingEnabled,
-                    ) {
-                        Text(stringResource(R.string.enter_pair_code))
+                        FilledTonalButton(
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = onOpenScanner,
+                            enabled = pairingEnabled,
+                            colors = ButtonDefaults.filledTonalButtonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary,
+                                disabledContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.45f),
+                                disabledContentColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.6f),
+                            ),
+                        ) {
+                            Text(stringResource(R.string.scan_pair_qr))
+                        }
+                        FilledTonalButton(
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = onOpenManualPair,
+                            enabled = pairingEnabled,
+                            colors = controlButtonColors(),
+                        ) {
+                            Text(stringResource(R.string.enter_pair_code))
+                        }
                     }
                 }
                 Box(

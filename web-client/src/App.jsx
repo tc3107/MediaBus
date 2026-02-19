@@ -144,6 +144,7 @@ function DriveView({
   onCreateFolder,
   onRenameItem,
   onToggleSelectPath,
+  onToggleSelectByLongPress,
   onToggleSelectAll,
   onBatchDownload,
   onBatchDelete,
@@ -155,7 +156,17 @@ function DriveView({
     return window.matchMedia('(max-width: 760px)').matches
   })
   const [openMenuPath, setOpenMenuPath] = useState('')
+  const [sortBy, setSortBy] = useState('name')
+  const [sortDirection, setSortDirection] = useState('down')
   const selectAllRef = useRef(null)
+  const tableWrapRef = useRef(null)
+  const longPressRef = useRef({
+    timer: null,
+    triggered: false,
+    startX: 0,
+    startY: 0,
+    path: '',
+  })
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined
@@ -193,12 +204,156 @@ function DriveView({
 
   const selectedSet = useMemo(() => new Set(selectedPaths || []), [selectedPaths])
   const selectedCount = selectedSet.size
+  const selectionMode = selectedCount > 0
   const allSelected = items.length > 0 && items.every((item) => selectedSet.has(item.path))
+  const sortedItems = useMemo(() => {
+    const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
+    const compareName = (left, right) => collator.compare(left.name || '', right.name || '')
+    const list = [...items]
+    list.sort((left, right) => {
+      if (left.directory !== right.directory) {
+        return left.directory ? -1 : 1
+      }
+      let result = 0
+      if (sortBy === 'modified') {
+        result = (left.lastModified || 0) - (right.lastModified || 0)
+        if (result === 0) result = compareName(left, right)
+      } else if (sortBy === 'size') {
+        const leftSize = left.size || 0
+        const rightSize = right.size || 0
+        result = leftSize - rightSize
+        if (result === 0) result = compareName(left, right)
+      } else {
+        result = compareName(left, right)
+      }
+      return sortDirection === 'down' ? result : -result
+    })
+    return list
+  }, [items, sortBy, sortDirection])
 
   useEffect(() => {
     if (!selectAllRef.current) return
     selectAllRef.current.indeterminate = selectedCount > 0 && !allSelected
   }, [selectedCount, allSelected])
+
+  useEffect(() => {
+    if (!isMobile || !tableWrapRef.current) return undefined
+    const el = tableWrapRef.current
+    const touchState = { x: 0, y: 0 }
+    const onTouchStart = (event) => {
+      const touch = event.touches?.[0]
+      if (!touch) return
+      touchState.x = touch.clientX
+      touchState.y = touch.clientY
+    }
+    const onTouchMove = (event) => {
+      const touch = event.touches?.[0]
+      if (!touch) return
+      const dx = touch.clientX - touchState.x
+      const dy = touch.clientY - touchState.y
+      if (Math.abs(dx) <= Math.abs(dy)) return
+
+      const maxLeft = el.scrollWidth - el.clientWidth
+      if (maxLeft <= 0) {
+        event.preventDefault()
+        return
+      }
+      const atLeft = el.scrollLeft <= 0
+      const atRight = el.scrollLeft >= maxLeft - 1
+      if ((atLeft && dx > 0) || (atRight && dx < 0)) {
+        event.preventDefault()
+      }
+    }
+    el.addEventListener('touchstart', onTouchStart, { passive: true })
+    el.addEventListener('touchmove', onTouchMove, { passive: false })
+    return () => {
+      el.removeEventListener('touchstart', onTouchStart)
+      el.removeEventListener('touchmove', onTouchMove)
+    }
+  }, [isMobile])
+
+  function onSortHeaderTap(nextSortBy) {
+    if (nextSortBy === sortBy) {
+      setSortDirection((prev) => (prev === 'down' ? 'up' : 'down'))
+      return
+    }
+    setSortBy(nextSortBy)
+    setSortDirection('down')
+  }
+
+  function clearLongPressTimer() {
+    const state = longPressRef.current
+    if (state.timer) {
+      clearTimeout(state.timer)
+      state.timer = null
+    }
+  }
+
+  function beginLongPress(pathValue, clientX, clientY) {
+    const state = longPressRef.current
+    clearLongPressTimer()
+    state.path = pathValue
+    state.triggered = false
+    state.startX = clientX
+    state.startY = clientY
+    state.timer = setTimeout(() => {
+      state.timer = null
+      state.triggered = true
+      if (!busy) onToggleSelectByLongPress(pathValue)
+    }, 430)
+  }
+
+  function isInteractivePressTarget(target) {
+    if (!(target instanceof Element)) return false
+    return !!target.closest('button, a, input, label, [role="button"], .mobile-menu-shell, .actions-cell')
+  }
+
+  function moveLongPress(clientX, clientY) {
+    const state = longPressRef.current
+    if (!state.timer) return
+    if (Math.abs(clientX - state.startX) > 10 || Math.abs(clientY - state.startY) > 10) {
+      clearLongPressTimer()
+    }
+  }
+
+  function endLongPress() {
+    clearLongPressTimer()
+  }
+
+  function consumeLongPress() {
+    const state = longPressRef.current
+    if (!state.triggered) return false
+    state.triggered = false
+    return true
+  }
+
+  function longPressBindRow(itemPath) {
+    return {
+      onPointerDown: (event) => {
+        if (event.pointerType === 'mouse' && event.button !== 0) return
+        if (isInteractivePressTarget(event.target)) return
+        beginLongPress(itemPath, event.clientX, event.clientY)
+      },
+      onPointerMove: (event) => {
+        moveLongPress(event.clientX, event.clientY)
+      },
+      onPointerUp: () => {
+        endLongPress()
+      },
+      onPointerCancel: () => {
+        endLongPress()
+      },
+      onPointerLeave: () => {
+        endLongPress()
+      },
+      onClick: (event) => {
+        if (!selectionMode) return
+        if (isInteractivePressTarget(event.target)) return
+        if (consumeLongPress()) return
+        onToggleSelectByLongPress(itemPath)
+      },
+    }
+  }
 
   function downloadHrefFor(item) {
     if (busy || !permissions.allowDownload) return undefined
@@ -309,6 +464,16 @@ function DriveView({
         </header>
 
         <div className="toolbar modern-toolbar">
+          <button
+            className="btn icon-btn control-btn"
+            title={allSelected ? 'Clear selection' : 'Select all'}
+            aria-label={allSelected ? 'Clear selection' : 'Select all'}
+            disabled={busy || items.length === 0}
+            onClick={() => onToggleSelectAll(!allSelected)}
+          >
+            <span className="icon-symbol">{allSelected ? '☒' : '☑'}</span>
+            <span className="control-label">{allSelected ? 'Clear Selection' : 'Select All'}</span>
+          </button>
           {selectedCount > 0 ? (
             <>
               <button
@@ -415,25 +580,46 @@ function DriveView({
           )}
         </div>
 
-        <div className="table-wrap modern-table-wrap">
+        <div ref={tableWrapRef} className="table-wrap modern-table-wrap">
           <table className={`modern-table ${isMobile ? 'mobile' : ''}`}>
             <thead>
               <tr>
-                <th className="select-col">
-                  <input
-                    ref={selectAllRef}
-                    className="row-select"
-                    type="checkbox"
-                    aria-label="Select all"
-                    checked={allSelected}
-                    disabled={busy || items.length === 0}
-                    onChange={(event) => onToggleSelectAll(event.currentTarget.checked)}
-                  />
+                <th className="name-col">
+                  <button className="sort-head" onClick={() => onSortHeaderTap('name')}>
+                    Name
+                    {sortBy === 'name' ? <span className="sort-arrow">{sortDirection === 'down' ? '↓' : '↑'}</span> : null}
+                  </button>
                 </th>
-                <th>Name</th>
-                {!isMobile && <th>Modified</th>}
-                {!isMobile && <th className="size-col">Size</th>}
-                {!isMobile && <th className="actions-col">Actions</th>}
+                {!isMobile && (
+                  <th>
+                    <button className="sort-head" onClick={() => onSortHeaderTap('modified')}>
+                      Modified
+                      {sortBy === 'modified' ? <span className="sort-arrow">{sortDirection === 'down' ? '↓' : '↑'}</span> : null}
+                    </button>
+                  </th>
+                )}
+                {!isMobile && (
+                  <th className="size-col">
+                    <button className="sort-head" onClick={() => onSortHeaderTap('size')}>
+                      Size
+                      {sortBy === 'size' ? <span className="sort-arrow">{sortDirection === 'down' ? '↓' : '↑'}</span> : null}
+                    </button>
+                  </th>
+                )}
+                {!isMobile && (
+                  <th className="select-col">
+                    <input
+                      ref={selectAllRef}
+                      className="row-select"
+                      type="checkbox"
+                      aria-label="Select all"
+                      checked={allSelected}
+                      disabled={busy || items.length === 0}
+                      onChange={(event) => onToggleSelectAll(event.currentTarget.checked)}
+                    />
+                  </th>
+                )}
+                <th className="actions-col">{isMobile ? null : 'Actions'}</th>
               </tr>
             </thead>
             <tbody>
@@ -446,27 +632,21 @@ function DriveView({
                   </tr>
                 ))
               )}
-              {items.map((item) => (
+              {sortedItems.map((item) => (
                 item.directory ? (
-                  <tr key={item.path}>
-                    <td className="select-cell">
-                      <input
-                        className="row-select"
-                        type="checkbox"
-                        aria-label={`Select ${item.name}`}
-                        checked={selectedSet.has(item.path)}
-                        disabled={busy}
-                        onChange={(event) => onToggleSelectPath(item.path, event.currentTarget.checked)}
-                      />
-                    </td>
-                    <td>
-                      <div className="row-main">
-                        <button className="row-name" onClick={() => onLoadPath(item.path)}>
-                          <span className="folder-icon">📁</span>
-                          {item.name}
-                        </button>
-                        {isMobile && <MobileMenu item={item} />}
-                      </div>
+                  <tr className={selectedSet.has(item.path) ? 'selected-row' : ''} key={item.path} {...longPressBindRow(item.path)}>
+                    <td className="name-cell">
+                      <button
+                        className={`row-name ${selectionMode ? 'row-name-disabled' : ''}`}
+                        onClick={() => {
+                          if (selectionMode) return
+                          if (consumeLongPress()) return
+                          onLoadPath(item.path)
+                        }}
+                      >
+                        <span className="folder-icon">📁</span>
+                        {item.name}
+                      </button>
                     </td>
                     {!isMobile && <td className="muted-cell">{formatTime(item.lastModified)}</td>}
                     {!isMobile && (
@@ -475,7 +655,23 @@ function DriveView({
                       </td>
                     )}
                     {!isMobile && (
-                      <td className="actions-cell">
+                      <td className="select-cell">
+                        <input
+                          className="row-select"
+                          type="checkbox"
+                          aria-label={`Select ${item.name}`}
+                          checked={selectedSet.has(item.path)}
+                          disabled={busy}
+                          onChange={(event) => onToggleSelectPath(item.path, event.currentTarget.checked)}
+                        />
+                      </td>
+                    )}
+                    <td className="actions-cell">
+                      {isMobile ? (
+                        <div className="actions-row">
+                          <MobileMenu item={item} />
+                        </div>
+                      ) : (
                         <div className="actions-row">
                           <a
                             className={`btn slim icon-btn ${busy || !permissions.allowDownload ? 'disabled-link' : ''}`}
@@ -507,28 +703,15 @@ function DriveView({
                             <span className="icon-symbol">🗑</span>
                           </button>
                         </div>
-                      </td>
-                    )}
+                      )}
+                    </td>
                   </tr>
                 ) : (
-                  <tr key={item.path}>
-                    <td className="select-cell">
-                      <input
-                        className="row-select"
-                        type="checkbox"
-                        aria-label={`Select ${item.name}`}
-                        checked={selectedSet.has(item.path)}
-                        disabled={busy}
-                        onChange={(event) => onToggleSelectPath(item.path, event.currentTarget.checked)}
-                      />
-                    </td>
-                    <td>
-                      <div className="row-main">
-                        <div className="row-name static">
-                          <span className="file-icon">📄</span>
-                          {item.name}
-                        </div>
-                        {isMobile && <MobileMenu item={item} />}
+                  <tr className={selectedSet.has(item.path) ? 'selected-row' : ''} key={item.path} {...longPressBindRow(item.path)}>
+                    <td className="name-cell">
+                      <div className="row-name static">
+                        <span className="file-icon">📄</span>
+                        {item.name}
                       </div>
                     </td>
                     {!isMobile && <td className="muted-cell">{formatTime(item.lastModified)}</td>}
@@ -538,7 +721,23 @@ function DriveView({
                       </td>
                     )}
                     {!isMobile && (
-                      <td className="actions-cell">
+                      <td className="select-cell">
+                        <input
+                          className="row-select"
+                          type="checkbox"
+                          aria-label={`Select ${item.name}`}
+                          checked={selectedSet.has(item.path)}
+                          disabled={busy}
+                          onChange={(event) => onToggleSelectPath(item.path, event.currentTarget.checked)}
+                        />
+                      </td>
+                    )}
+                    <td className="actions-cell">
+                      {isMobile ? (
+                        <div className="actions-row">
+                          <MobileMenu item={item} />
+                        </div>
+                      ) : (
                         <div className="actions-row">
                           <a
                             className={`btn slim icon-btn ${busy || !permissions.allowDownload ? 'disabled-link' : ''}`}
@@ -570,8 +769,8 @@ function DriveView({
                             <span className="icon-symbol">🗑</span>
                           </button>
                         </div>
-                      </td>
-                    )}
+                      )}
+                    </td>
                   </tr>
                 )
               ))}
@@ -867,6 +1066,15 @@ export default function App() {
     })
   }
 
+  function toggleSelectByLongPress(itemPath) {
+    setSelectedPaths((prev) => {
+      if (prev.includes(itemPath)) {
+        return prev.filter((pathValue) => pathValue !== itemPath)
+      }
+      return [...prev, itemPath]
+    })
+  }
+
   function toggleSelectAll(checked) {
     if (checked) {
       setSelectedPaths(items.map((item) => item.path))
@@ -1026,6 +1234,29 @@ export default function App() {
     busyRef.current = busy
   }, [busy])
 
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return undefined
+    const root = document.documentElement
+    const syncViewportVars = () => {
+      const vv = window.visualViewport
+      const width = vv?.width || window.innerWidth
+      const height = vv?.height || window.innerHeight
+      root.style.setProperty('--app-vw', `${width}px`)
+      root.style.setProperty('--app-vh', `${height}px`)
+    }
+    syncViewportVars()
+    window.addEventListener('resize', syncViewportVars)
+    window.addEventListener('orientationchange', syncViewportVars)
+    window.visualViewport?.addEventListener('resize', syncViewportVars)
+    window.visualViewport?.addEventListener('scroll', syncViewportVars)
+    return () => {
+      window.removeEventListener('resize', syncViewportVars)
+      window.removeEventListener('orientationchange', syncViewportVars)
+      window.visualViewport?.removeEventListener('resize', syncViewportVars)
+      window.visualViewport?.removeEventListener('scroll', syncViewportVars)
+    }
+  }, [])
+
   if (loading) {
     return (
       <main className="drive-shell">
@@ -1038,7 +1269,16 @@ export default function App() {
     <main className="drive-shell">
       <header className="topbar">
         <div>
-          <h1>MediaBus</h1>
+          <h1>
+            <button
+              className="title-button"
+              title="Reload page"
+              aria-label="Reload page"
+              onClick={() => window.location.reload()}
+            >
+              MediaBus
+            </button>
+          </h1>
         </div>
       </header>
 
@@ -1067,6 +1307,7 @@ export default function App() {
           onCreateFolder={createFolder}
           onRenameItem={renameItem}
           onToggleSelectPath={toggleSelectPath}
+          onToggleSelectByLongPress={toggleSelectByLongPress}
           onToggleSelectAll={toggleSelectAll}
           onBatchDownload={batchDownloadSelected}
           onBatchDelete={batchDeleteSelected}
