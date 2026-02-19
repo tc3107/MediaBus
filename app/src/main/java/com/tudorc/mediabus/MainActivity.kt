@@ -60,6 +60,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -484,14 +485,34 @@ private fun animatedStatusBorderBrush(baseColor: Color): Brush {
 @Composable
 private fun StatsCard(uiState: HostControlUiState) {
     val summary = uiState.transferSummary
-    val isActive = summary.inProgress
-    val overallProgress = if (summary.overallTotalBytes > 0L) {
-        (summary.overallTransferredBytes.toFloat() / summary.overallTotalBytes.toFloat()).coerceIn(0f, 1f)
+    var showTransferDetails by remember { mutableStateOf(summary.inProgress) }
+    var displayedSummary by remember { mutableStateOf(summary) }
+    val latestSummary by rememberUpdatedState(summary)
+
+    LaunchedEffect(summary) {
+        if (summary.inProgress) {
+            displayedSummary = summary
+            showTransferDetails = true
+        }
+    }
+    LaunchedEffect(summary.inProgress) {
+        if (!summary.inProgress) {
+            delay(850)
+            if (!latestSummary.inProgress) {
+                showTransferDetails = false
+            }
+        }
+    }
+
+    val renderSummary = if (showTransferDetails) displayedSummary else summary
+    val isActive = showTransferDetails
+    val overallProgress = if (renderSummary.overallTotalBytes > 0L) {
+        (renderSummary.overallTransferredBytes.toFloat() / renderSummary.overallTotalBytes.toFloat()).coerceIn(0f, 1f)
     } else {
         0f
     }
-    val fileProgress = if (summary.currentFileTotalBytes > 0L) {
-        (summary.currentFileTransferredBytes.toFloat() / summary.currentFileTotalBytes.toFloat()).coerceIn(0f, 1f)
+    val fileProgress = if (renderSummary.currentFileTotalBytes > 0L) {
+        (renderSummary.currentFileTransferredBytes.toFloat() / renderSummary.currentFileTotalBytes.toFloat()).coerceIn(0f, 1f)
     } else {
         0f
     }
@@ -524,26 +545,26 @@ private fun StatsCard(uiState: HostControlUiState) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             } else {
-                val direction = when (summary.direction) {
+                val direction = when (renderSummary.direction) {
                     TransferDirection.Uploading -> stringResource(R.string.direction_uploading)
                     TransferDirection.Downloading -> stringResource(R.string.direction_downloading)
                     TransferDirection.Mixed -> stringResource(R.string.direction_transferring)
                     TransferDirection.None -> stringResource(R.string.direction_transferring)
                 }
                 Text(
-                    text = "$direction ${summary.activeFiles}/${summary.totalFiles}",
+                    text = "$direction ${renderSummary.activeFiles}/${renderSummary.totalFiles}",
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 Text(
                     text = stringResource(
                         R.string.transfer_progress_overall,
-                        Formatters.formatBytes(summary.overallTransferredBytes),
-                        Formatters.formatBytes(summary.overallTotalBytes),
+                        Formatters.formatBytes(renderSummary.overallTransferredBytes),
+                        Formatters.formatBytes(renderSummary.overallTotalBytes),
                     ),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                if (summary.overallTotalBytes > 0L) {
+                if (renderSummary.overallTotalBytes > 0L) {
                     LinearProgressIndicator(
                         progress = { overallProgress },
                         modifier = Modifier.fillMaxWidth(),
@@ -555,13 +576,13 @@ private fun StatsCard(uiState: HostControlUiState) {
                 Text(
                     text = stringResource(
                         R.string.transfer_progress_current_file,
-                        Formatters.formatBytes(summary.currentFileTransferredBytes),
-                        Formatters.formatBytes(summary.currentFileTotalBytes),
+                        Formatters.formatBytes(renderSummary.currentFileTransferredBytes),
+                        Formatters.formatBytes(renderSummary.currentFileTotalBytes),
                     ),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                if (summary.currentFileTotalBytes > 0L) {
+                if (renderSummary.currentFileTotalBytes > 0L) {
                     LinearProgressIndicator(
                         progress = { fileProgress },
                         modifier = Modifier.fillMaxWidth(),

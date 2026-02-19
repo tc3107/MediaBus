@@ -164,6 +164,11 @@ body {
   line-height: 1;
 }
 
+.crumb-up:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .crumb {
   border: none;
   background: none;
@@ -214,6 +219,32 @@ body {
 .modern-toolbar .btn,
 .modern-toolbar .file-btn {
   flex: 0 0 auto;
+}
+
+.control-btn.icon-btn {
+  width: auto;
+  min-width: 0;
+  padding: 8px 10px;
+  gap: 6px;
+  flex: 1 1 0;
+}
+
+.control-label {
+  display: none;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+@media (min-width: 980px) {
+  .control-label {
+    display: inline;
+  }
+
+  .control-btn.icon-btn {
+    justify-content: flex-start;
+    padding: 8px 12px;
+  }
 }
 
 .btn {
@@ -539,4 +570,6 @@ body {
   .actions-row {
     justify-content: flex-start;
   }
+
+  .control-label { display: none; }
 }

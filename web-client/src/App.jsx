@@ -129,6 +129,7 @@ function PairingView({ boot }) {
 function DriveView({
   busy,
   path,
+  canGoUp,
   items,
   log,
   transfer,
@@ -149,7 +150,7 @@ function DriveView({
       <div className="drive-main glass-card">
         <header className="drive-header">
           <div className="breadcrumbs">
-            <button className="crumb-up" title="Up" aria-label="Up" onClick={onUp}>
+            <button className="crumb-up" title="Up" aria-label="Up" disabled={!canGoUp || busy} onClick={onUp}>
               ↑
             </button>
             {crumbs.map((crumb, index) => (
@@ -166,12 +167,13 @@ function DriveView({
 
         <div className="toolbar modern-toolbar">
           <label
-            className="btn btn-primary file-btn icon-btn"
+            className="btn btn-primary file-btn icon-btn control-btn"
             aria-disabled={!permissions.allowUpload}
-            title="Upload files"
-            aria-label="Upload files"
+            title="Upload File"
+            aria-label="Upload File"
           >
             <span className="icon-symbol">↑📄</span>
+            <span className="control-label">Upload File</span>
             <input
               type="file"
               multiple
@@ -183,12 +185,13 @@ function DriveView({
             />
           </label>
           <label
-            className="btn btn-primary file-btn icon-btn"
+            className="btn btn-primary file-btn icon-btn control-btn"
             aria-disabled={!permissions.allowUpload}
-            title="Upload folder"
-            aria-label="Upload folder"
+            title="Upload Folder"
+            aria-label="Upload Folder"
           >
             <span className="icon-symbol">↑📁</span>
+            <span className="control-label">Upload Folder</span>
             <input
               type="file"
               webkitdirectory=""
@@ -202,13 +205,14 @@ function DriveView({
             />
           </label>
           <button
-            className="btn icon-btn"
-            title="New folder"
-            aria-label="New folder"
+            className="btn icon-btn control-btn"
+            title="New Folder"
+            aria-label="New Folder"
             disabled={busy || !permissions.allowUpload}
             onClick={onCreateFolder}
           >
             <span className="icon-symbol">+📁</span>
+            <span className="control-label">New Folder</span>
           </button>
         </div>
 
@@ -548,6 +552,13 @@ export default function App() {
     }
   }
 
+  function goUp() {
+    const basePath = currentPathRef.current || path || ''
+    const parentPath = dirname(basePath)
+    if (parentPath === basePath) return
+    loadPath(parentPath)
+  }
+
   async function refreshCurrentPath() {
     if (!paired || busyRef.current || refreshInFlightRef.current) return
     refreshInFlightRef.current = true
@@ -714,11 +725,12 @@ export default function App() {
         <DriveView
           busy={busy}
           path={path}
+          canGoUp={(path || '').split('/').filter(Boolean).length > 0}
           items={items}
           log={log}
           transfer={transfer}
           permissions={permissions}
-          onUp={() => loadPath(dirname(path))}
+          onUp={goUp}
           onLoadPath={loadPath}
           onUploadFiles={(files) => uploadFiles(files, false)}
           onUploadFolder={(files) => uploadFiles(files, true)}
