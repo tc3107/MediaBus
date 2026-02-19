@@ -52,7 +52,6 @@ class MediaBusHostService : LifecycleService() {
     private var server: MediaBusHttpServer? = null
     private var activeFolderUri: Uri? = null
     private var activeIp: InetAddress? = null
-    private var preferredHostIp: String? = null
     private var restartingForIpChange = false
 
     private val connectivityManager by lazy {
@@ -116,22 +115,9 @@ class MediaBusHostService : LifecycleService() {
                 }
             }
             launch {
-                repository.settingsFlow.collectLatest { settings ->
-                    preferredHostIp = settings.selectedHostIp
+                repository.settingsFlow.collectLatest {
                     val latestIps = localIps()
                     _state.value = _state.value.copy(availableIps = latestIps)
-                    val running = _state.value.running
-                    val currentIp = activeIp?.hostAddress
-                    if (running && !currentIp.isNullOrBlank() && !settings.selectedHostIp.isNullOrBlank()) {
-                        if (currentIp != settings.selectedHostIp) {
-                            lock.withLock {
-                                val folder = activeFolderUri
-                                if (folder != null) {
-                                    startRuntime(folder, preserveStateMessage = true)
-                                }
-                            }
-                        }
-                    }
                 }
             }
         }
@@ -274,7 +260,6 @@ class MediaBusHostService : LifecycleService() {
             error = null,
         )
         stopRuntime(updateState = false)
-        preferredHostIp = repository.getSettings().selectedHostIp
 
         val ipAddress = chooseBindIp()
         if (ipAddress == null) {
@@ -440,14 +425,6 @@ class MediaBusHostService : LifecycleService() {
             return null
         }
 
-        val preferred = preferredHostIp
-        if (!preferred.isNullOrBlank()) {
-            addresses.firstOrNull { it.hostAddress == preferred }?.let {
-                ServerLogger.i(LOG_COMPONENT, "Using preferred bind IP ${it.hostAddress}")
-                return it
-            }
-            ServerLogger.w(LOG_COMPONENT, "Preferred bind IP $preferred unavailable; falling back")
-        }
         val selected = addresses.firstOrNull()
         ServerLogger.i(LOG_COMPONENT, "Using bind IP ${selected?.hostAddress ?: "none"}")
         return selected

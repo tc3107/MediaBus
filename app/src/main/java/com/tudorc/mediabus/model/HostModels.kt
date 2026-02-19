@@ -2,7 +2,6 @@ package com.tudorc.mediabus.model
 
 data class HostSettings(
     val sharedFolderUri: String? = null,
-    val selectedHostIp: String? = null,
     val showHiddenFiles: Boolean = false,
     val allowUpload: Boolean = true,
     val allowDownload: Boolean = true,

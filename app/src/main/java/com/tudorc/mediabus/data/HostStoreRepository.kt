@@ -25,7 +25,6 @@ class HostStoreRepository(private val appContext: Context) {
     val settingsFlow: Flow<HostSettings> = store.data.map { preferences ->
         HostSettings(
             sharedFolderUri = preferences[sharedFolderUriKey],
-            selectedHostIp = preferences[selectedHostIpKey],
             showHiddenFiles = preferences[showHiddenFilesKey] ?: false,
             allowUpload = preferences[allowUploadKey] ?: true,
             allowDownload = preferences[allowDownloadKey] ?: true,
@@ -47,16 +46,6 @@ class HostStoreRepository(private val appContext: Context) {
                 preferences.remove(sharedFolderUriKey)
             } else {
                 preferences[sharedFolderUriKey] = value
-            }
-        }
-    }
-
-    suspend fun setSelectedHostIp(value: String?) {
-        store.edit { preferences ->
-            if (value == null) {
-                preferences.remove(selectedHostIpKey)
-            } else {
-                preferences[selectedHostIpKey] = value
             }
         }
     }
@@ -156,7 +145,6 @@ class HostStoreRepository(private val appContext: Context) {
 
     private companion object {
         private val sharedFolderUriKey = stringPreferencesKey("shared_folder_uri")
-        private val selectedHostIpKey = stringPreferencesKey("selected_host_ip")
         private val showHiddenFilesKey = booleanPreferencesKey("show_hidden_files")
         private val allowUploadKey = booleanPreferencesKey("allow_upload")
         private val allowDownloadKey = booleanPreferencesKey("allow_download")

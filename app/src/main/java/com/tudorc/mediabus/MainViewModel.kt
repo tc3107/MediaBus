@@ -29,7 +29,6 @@ data class HostControlUiState(
     val statusText: String = "Server offline",
     val error: String? = null,
     val availableIps: List<String> = emptyList(),
-    val selectedHostIp: String? = null,
     val showHiddenFiles: Boolean = false,
     val allowUpload: Boolean = true,
     val allowDownload: Boolean = true,
@@ -75,7 +74,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             statusText = serviceState.statusText,
             error = serviceState.error,
             availableIps = availableIps,
-            selectedHostIp = settings.selectedHostIp,
             showHiddenFiles = settings.showHiddenFiles,
             allowUpload = settings.allowUpload,
             allowDownload = settings.allowDownload,
@@ -109,19 +107,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             repository.setSharedFolderUri(uri.toString())
-        }
-    }
-
-    fun onSelectedHostIp(ip: String?) {
-        viewModelScope.launch {
-            repository.setSelectedHostIp(ip)
-            if (uiState.value.serverRunning) {
-                val folder = uiState.value.folderUri
-                if (!folder.isNullOrBlank()) {
-                    MediaBusHostService.stop(context)
-                    MediaBusHostService.start(context, folder)
-                }
-            }
         }
     }
 
