@@ -21,13 +21,25 @@ html, body, #app {
   min-height: 100%;
 }
 
+html {
+  min-height: 100dvh;
+  background-color: var(--bg-0);
+  background:
+    radial-gradient(circle at 8% -10%, rgba(87, 140, 255, 0.22), transparent 38%),
+    radial-gradient(circle at 88% 8%, rgba(88, 209, 255, 0.2), transparent 36%),
+    linear-gradient(170deg, var(--bg-2), var(--bg-0) 58%);
+  overscroll-behavior-y: none;
+}
+
 body {
-  font-family: "Sora", "Inter", "Segoe UI", system-ui, sans-serif;
+  min-height: 100dvh;
+  font-family: "Manrope", "Plus Jakarta Sans", "Inter", "SF Pro Text", "Segoe UI", system-ui, sans-serif;
   color: var(--text);
   background:
     radial-gradient(circle at 8% -10%, rgba(87, 140, 255, 0.22), transparent 38%),
     radial-gradient(circle at 88% 8%, rgba(88, 209, 255, 0.2), transparent 36%),
     linear-gradient(170deg, var(--bg-2), var(--bg-0) 58%);
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 
 .drive-shell {
@@ -44,8 +56,9 @@ body {
 .topbar h1 {
   margin: 0;
   font-size: clamp(30px, 4vw, 44px);
-  letter-spacing: -0.03em;
-  font-family: "JetBrains Mono", "Fira Code", "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  letter-spacing: -0.035em;
+  font-family: "Manrope", "Plus Jakarta Sans", "Inter", "SF Pro Display", "Segoe UI", system-ui, sans-serif;
+  font-weight: 800;
 }
 
 .topbar p {
@@ -468,6 +481,29 @@ body {
   border-bottom: none;
 }
 
+.loading-row td {
+  padding-top: 9px;
+  padding-bottom: 9px;
+}
+
+.row-loading-skeleton {
+  height: 32px;
+  border-radius: 8px;
+  background: linear-gradient(
+    90deg,
+    rgba(115, 150, 214, 0.14) 0%,
+    rgba(170, 207, 255, 0.24) 45%,
+    rgba(115, 150, 214, 0.14) 100%
+  );
+  background-size: 220% 100%;
+  animation: row-shimmer 1.05s ease-in-out infinite;
+}
+
+@keyframes row-shimmer {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
 .row-name {
   border: none;
   background: none;
@@ -478,6 +514,14 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+}
+
+.row-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  position: relative;
 }
 
 .row-name.static {
@@ -531,6 +575,86 @@ body {
   color: var(--muted);
 }
 
+.mobile-menu-shell {
+  position: relative;
+}
+
+.mobile-menu-trigger {
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  padding: 0;
+}
+
+.mobile-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 20;
+  width: min(78vw, 300px);
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: rgba(12, 19, 31, 0.96);
+  box-shadow: 0 16px 28px rgba(3, 8, 16, 0.56);
+  overflow: hidden;
+}
+
+.mobile-menu.open-upward {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
+
+.mobile-menu-item {
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-bottom: 1px solid rgba(142, 171, 228, 0.16);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 10px 12px;
+  cursor: pointer;
+  display: block;
+  text-decoration: none;
+}
+
+.mobile-menu-item.danger {
+  color: #ffb6c0;
+}
+
+.mobile-menu-item:hover {
+  background: rgba(78, 121, 199, 0.16);
+}
+
+.mobile-menu-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.mobile-menu-properties {
+  border-top: 1px solid rgba(142, 171, 228, 0.16);
+  padding: 10px 12px;
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+}
+
+.mobile-menu-properties div {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.mobile-menu-properties strong {
+  color: #d9ecff;
+  font-weight: 600;
+  text-align: right;
+}
+
 .btn.slim {
   padding: 7px 11px;
   border-radius: 10px;
@@ -560,15 +684,29 @@ body {
     margin-left: 0;
   }
 
-  .size-col,
-  .size-cell,
-  .actions-col,
-  .actions-cell {
-    text-align: left;
+  .modern-table {
+    min-width: 100%;
   }
 
-  .actions-row {
-    justify-content: flex-start;
+  .modern-table.mobile th,
+  .modern-table.mobile td {
+    padding: 10px 10px;
+  }
+
+  .modern-table.mobile .row-name {
+    max-width: calc(100vw - 130px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .modern-table.mobile .row-name.static {
+    display: inline-flex;
+  }
+
+  .modern-table.mobile .mobile-menu {
+    right: 0;
+    width: min(82vw, 320px);
   }
 
   .control-label { display: none; }

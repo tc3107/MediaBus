@@ -128,6 +128,7 @@ function PairingView({ boot }) {
 
 function DriveView({
   busy,
+  pathLoading,
   path,
   canGoUp,
   items,
@@ -144,6 +145,133 @@ function DriveView({
   onCancelUpload,
 }) {
   const crumbs = pathCrumbs(path)
+  const [isMobile, setIsMobile] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return window.matchMedia('(max-width: 760px)').matches
+  })
+  const [openMenuPath, setOpenMenuPath] = useState('')
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined
+    const media = window.matchMedia('(max-width: 760px)')
+    const onChange = () => setIsMobile(media.matches)
+    onChange()
+    if (typeof media.addEventListener === 'function') {
+      media.addEventListener('change', onChange)
+      return () => media.removeEventListener('change', onChange)
+    }
+    media.addListener(onChange)
+    return () => media.removeListener(onChange)
+  }, [])
+
+  useEffect(() => {
+    setOpenMenuPath('')
+  }, [path, items.length, isMobile])
+
+  useEffect(() => {
+    if (!openMenuPath) return undefined
+    const onGlobalPress = (event) => {
+      if (event.target instanceof Element && event.target.closest('.mobile-menu-shell')) return
+      setOpenMenuPath('')
+    }
+    const onEscape = (event) => {
+      if (event.key === 'Escape') setOpenMenuPath('')
+    }
+    document.addEventListener('pointerdown', onGlobalPress)
+    document.addEventListener('keydown', onEscape)
+    return () => {
+      document.removeEventListener('pointerdown', onGlobalPress)
+      document.removeEventListener('keydown', onEscape)
+    }
+  }, [openMenuPath])
+
+  function downloadHrefFor(item) {
+    if (busy || !permissions.allowDownload) return undefined
+    return item.directory
+      ? `/api/files/download-zip?path=${encodeURIComponent(item.path)}`
+      : `/api/files/download?path=${encodeURIComponent(item.path)}`
+  }
+
+  function MobileMenu({ item }) {
+    const isOpen = openMenuPath === item.path
+    const [openUpward, setOpenUpward] = useState(false)
+    const triggerRef = useRef(null)
+    const menuRef = useRef(null)
+
+    useEffect(() => {
+      if (!isOpen) {
+        setOpenUpward(false)
+        return
+      }
+      const trigger = triggerRef.current
+      const menu = menuRef.current
+      if (!trigger || !menu) return
+      const triggerRect = trigger.getBoundingClientRect()
+      const menuHeight = menu.offsetHeight || 220
+      const spaceBelow = window.innerHeight - triggerRect.bottom
+      const spaceAbove = triggerRect.top
+      const shouldOpenUpward = spaceBelow < menuHeight + 8 && spaceAbove > spaceBelow
+      setOpenUpward(shouldOpenUpward)
+    }, [isOpen, item.path])
+
+    return (
+      <div className="mobile-menu-shell">
+        <button
+          ref={triggerRef}
+          className="btn slim icon-btn mobile-menu-trigger"
+          title={`Options for ${item.name}`}
+          aria-label={`Options for ${item.name}`}
+          aria-expanded={isOpen}
+          onClick={() => setOpenMenuPath((prev) => (prev === item.path ? '' : item.path))}
+        >
+          <span className="icon-symbol">⋮</span>
+        </button>
+        {isOpen && (
+          <div ref={menuRef} className={`mobile-menu ${openUpward ? 'open-upward' : ''}`}>
+            <a
+              className={`mobile-menu-item ${busy || !permissions.allowDownload ? 'disabled-link' : ''}`}
+              href={downloadHrefFor(item)}
+              onClick={(event) => {
+                if (busy || !permissions.allowDownload) {
+                  event.preventDefault()
+                  return
+                }
+                setOpenMenuPath('')
+              }}
+            >
+              {item.directory ? 'Download folder' : 'Download file'}
+            </a>
+            <button
+              className="mobile-menu-item"
+              disabled={busy || !permissions.allowUpload}
+              onClick={() => {
+                setOpenMenuPath('')
+                onRenameItem(item)
+              }}
+            >
+              Rename
+            </button>
+            <button
+              className="mobile-menu-item danger"
+              disabled={busy || !permissions.allowDelete}
+              onClick={() => {
+                setOpenMenuPath('')
+                onDeleteItem(item)
+              }}
+            >
+              Delete
+            </button>
+            <div className="mobile-menu-properties">
+              <div><span>Modified</span><strong>{formatTime(item.lastModified)}</strong></div>
+              <div><span>Size</span><strong>{item.directory ? '-' : formatBytes(item.size)}</strong></div>
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  const visibleColumnCount = isMobile ? 1 : 4
 
   return (
     <section className="drive-layout">
@@ -246,108 +374,131 @@ function DriveView({
         </div>
 
         <div className="table-wrap modern-table-wrap">
-          <table className="modern-table">
+          <table className={`modern-table ${isMobile ? 'mobile' : ''}`}>
             <thead>
               <tr>
                 <th>Name</th>
-                <th>Modified</th>
-                <th className="size-col">Size</th>
-                <th className="actions-col">Actions</th>
+                {!isMobile && <th>Modified</th>}
+                {!isMobile && <th className="size-col">Size</th>}
+                {!isMobile && <th className="actions-col">Actions</th>}
               </tr>
             </thead>
             <tbody>
+              {pathLoading && items.length === 0 && (
+                Array.from({ length: 6 }).map((_, index) => (
+                  <tr key={`loading-row-${index}`} className="loading-row">
+                    <td colSpan={visibleColumnCount}>
+                      <div className="row-loading-skeleton" />
+                    </td>
+                  </tr>
+                ))
+              )}
               {items.map((item) => (
                 item.directory ? (
                   <tr key={item.path}>
                     <td>
-                      <button className="row-name" onClick={() => onLoadPath(item.path)}>
-                        <span className="folder-icon">📁</span>
-                        {item.name}
-                      </button>
-                    </td>
-                    <td className="muted-cell">{formatTime(item.lastModified)}</td>
-                    <td className="size-cell">
-                      <span className="size-value">-</span>
-                    </td>
-                    <td className="actions-cell">
-                      <div className="actions-row">
-                        <a
-                          className={`btn slim icon-btn ${busy || !permissions.allowDownload ? 'disabled-link' : ''}`}
-                          href={!busy && permissions.allowDownload ? `/api/files/download-zip?path=${encodeURIComponent(item.path)}` : undefined}
-                          title="Download folder"
-                          aria-label="Download folder"
-                          onClick={(event) => {
-                            if (busy || !permissions.allowDownload) event.preventDefault()
-                          }}
-                        >
-                          <span className="icon-symbol">⬇</span>
-                        </a>
-                        <button
-                          className="btn slim icon-btn"
-                          title="Rename"
-                          aria-label="Rename"
-                          disabled={busy || !permissions.allowUpload}
-                          onClick={() => onRenameItem(item)}
-                        >
-                          <span className="icon-symbol">✎</span>
+                      <div className="row-main">
+                        <button className="row-name" onClick={() => onLoadPath(item.path)}>
+                          <span className="folder-icon">📁</span>
+                          {item.name}
                         </button>
-                        <button
-                          className="btn slim btn-danger icon-btn"
-                          title="Delete"
-                          aria-label="Delete"
-                          disabled={busy || !permissions.allowDelete}
-                          onClick={() => onDeleteItem(item)}
-                        >
-                          <span className="icon-symbol">🗑</span>
-                        </button>
+                        {isMobile && <MobileMenu item={item} />}
                       </div>
                     </td>
+                    {!isMobile && <td className="muted-cell">{formatTime(item.lastModified)}</td>}
+                    {!isMobile && (
+                      <td className="size-cell">
+                        <span className="size-value">-</span>
+                      </td>
+                    )}
+                    {!isMobile && (
+                      <td className="actions-cell">
+                        <div className="actions-row">
+                          <a
+                            className={`btn slim icon-btn ${busy || !permissions.allowDownload ? 'disabled-link' : ''}`}
+                            href={downloadHrefFor(item)}
+                            title="Download folder"
+                            aria-label="Download folder"
+                            onClick={(event) => {
+                              if (busy || !permissions.allowDownload) event.preventDefault()
+                            }}
+                          >
+                            <span className="icon-symbol">⬇</span>
+                          </a>
+                          <button
+                            className="btn slim icon-btn"
+                            title="Rename"
+                            aria-label="Rename"
+                            disabled={busy || !permissions.allowUpload}
+                            onClick={() => onRenameItem(item)}
+                          >
+                            <span className="icon-symbol">✎</span>
+                          </button>
+                          <button
+                            className="btn slim btn-danger icon-btn"
+                            title="Delete"
+                            aria-label="Delete"
+                            disabled={busy || !permissions.allowDelete}
+                            onClick={() => onDeleteItem(item)}
+                          >
+                            <span className="icon-symbol">🗑</span>
+                          </button>
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 ) : (
                   <tr key={item.path}>
                     <td>
-                      <div className="row-name static">
-                        <span className="file-icon">📄</span>
-                        {item.name}
+                      <div className="row-main">
+                        <div className="row-name static">
+                          <span className="file-icon">📄</span>
+                          {item.name}
+                        </div>
+                        {isMobile && <MobileMenu item={item} />}
                       </div>
                     </td>
-                    <td className="muted-cell">{formatTime(item.lastModified)}</td>
-                    <td className="size-cell">
-                      <span className="size-value">{formatBytes(item.size)}</span>
-                    </td>
-                    <td className="actions-cell">
-                      <div className="actions-row">
-                        <a
-                          className={`btn slim icon-btn ${busy || !permissions.allowDownload ? 'disabled-link' : ''}`}
-                          href={!busy && permissions.allowDownload ? `/api/files/download?path=${encodeURIComponent(item.path)}` : undefined}
-                          title="Download file"
-                          aria-label="Download file"
-                          onClick={(event) => {
-                            if (busy || !permissions.allowDownload) event.preventDefault()
-                          }}
-                        >
-                          <span className="icon-symbol">⬇</span>
-                        </a>
-                        <button
-                          className="btn slim icon-btn"
-                          title="Rename"
-                          aria-label="Rename"
-                          disabled={busy || !permissions.allowUpload}
-                          onClick={() => onRenameItem(item)}
-                        >
-                          <span className="icon-symbol">✎</span>
-                        </button>
-                        <button
-                          className="btn slim btn-danger icon-btn"
-                          title="Delete"
-                          aria-label="Delete"
-                          disabled={busy || !permissions.allowDelete}
-                          onClick={() => onDeleteItem(item)}
-                        >
-                          <span className="icon-symbol">🗑</span>
-                        </button>
-                      </div>
-                    </td>
+                    {!isMobile && <td className="muted-cell">{formatTime(item.lastModified)}</td>}
+                    {!isMobile && (
+                      <td className="size-cell">
+                        <span className="size-value">{formatBytes(item.size)}</span>
+                      </td>
+                    )}
+                    {!isMobile && (
+                      <td className="actions-cell">
+                        <div className="actions-row">
+                          <a
+                            className={`btn slim icon-btn ${busy || !permissions.allowDownload ? 'disabled-link' : ''}`}
+                            href={downloadHrefFor(item)}
+                            title="Download file"
+                            aria-label="Download file"
+                            onClick={(event) => {
+                              if (busy || !permissions.allowDownload) event.preventDefault()
+                            }}
+                          >
+                            <span className="icon-symbol">⬇</span>
+                          </a>
+                          <button
+                            className="btn slim icon-btn"
+                            title="Rename"
+                            aria-label="Rename"
+                            disabled={busy || !permissions.allowUpload}
+                            onClick={() => onRenameItem(item)}
+                          >
+                            <span className="icon-symbol">✎</span>
+                          </button>
+                          <button
+                            className="btn slim btn-danger icon-btn"
+                            title="Delete"
+                            aria-label="Delete"
+                            disabled={busy || !permissions.allowDelete}
+                            onClick={() => onDeleteItem(item)}
+                          >
+                            <span className="icon-symbol">🗑</span>
+                          </button>
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 )
               ))}
@@ -363,6 +514,7 @@ export default function App() {
   const [boot, setBoot] = useState(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
+  const [pathLoading, setPathLoading] = useState(false)
   const [error, setError] = useState('')
 
   const [path, setPath] = useState('')
@@ -387,6 +539,7 @@ export default function App() {
   const loadRequestSeqRef = useRef(0)
   const activeUploadXhrRef = useRef(null)
   const cancelUploadRef = useRef(false)
+  const revealTimerRef = useRef(null)
 
   const paired = !!boot?.paired
   const permissions = {
@@ -408,22 +561,60 @@ export default function App() {
       clearInterval(filePollRef.current)
       filePollRef.current = null
     }
+    if (revealTimerRef.current) {
+      clearTimeout(revealTimerRef.current)
+      revealTimerRef.current = null
+    }
   }
 
   async function loadPath(nextPath, options = {}) {
     const { silent = false } = options
     const requestedPath = nextPath || ''
+    // Commit requested path immediately so background refresh does not race
+    // and re-request an older directory right after user navigation.
+    currentPathRef.current = requestedPath
     const requestSeq = ++loadRequestSeqRef.current
+    if (revealTimerRef.current) {
+      clearTimeout(revealTimerRef.current)
+      revealTimerRef.current = null
+    }
+    if (!silent) {
+      setPath(requestedPath)
+      setItems([])
+      setPathLoading(true)
+    }
     try {
       const data = await api(`/api/files/list?path=${encodeURIComponent(requestedPath)}`)
       if (requestSeq !== loadRequestSeqRef.current) return
-      setPath(data.path || '')
-      currentPathRef.current = data.path || requestedPath
-      setItems(data.items || [])
+      const resolvedPath = data.path || requestedPath
+      const nextItems = data.items || []
+      setPath(resolvedPath)
+      currentPathRef.current = resolvedPath
+      if (silent) {
+        setItems(nextItems)
+      } else {
+        let shown = 0
+        const step = 24
+        const revealNext = () => {
+          if (requestSeq !== loadRequestSeqRef.current) return
+          shown = Math.min(shown + step, nextItems.length)
+          setItems(nextItems.slice(0, shown))
+          if (shown < nextItems.length) {
+            revealTimerRef.current = setTimeout(revealNext, 16)
+          } else {
+            revealTimerRef.current = null
+          }
+        }
+        revealNext()
+      }
       if (!silent) setLog('')
     } catch (err) {
       if (requestSeq !== loadRequestSeqRef.current) return
       if (!silent) setError(friendlyErrorMessage(err.message || 'Failed to load files'))
+    } finally {
+      if (!silent && requestSeq === loadRequestSeqRef.current) {
+        setPathLoading(false)
+      }
     }
   }
 
@@ -702,7 +893,7 @@ export default function App() {
   if (loading) {
     return (
       <main className="drive-shell">
-        <section className="glass-card loading-card">Loading MediaBus Drive...</section>
+        <section className="glass-card loading-card">Loading MediaBus...</section>
       </main>
     )
   }
@@ -711,7 +902,7 @@ export default function App() {
     <main className="drive-shell">
       <header className="topbar">
         <div>
-          <h1>MediaBus Drive</h1>
+          <h1>MediaBus</h1>
         </div>
       </header>
 
@@ -724,6 +915,7 @@ export default function App() {
       {paired && (
         <DriveView
           busy={busy}
+          pathLoading={pathLoading}
           path={path}
           canGoUp={(path || '').split('/').filter(Boolean).length > 0}
           items={items}
