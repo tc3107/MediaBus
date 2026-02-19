@@ -299,6 +299,8 @@ private fun HostControlPanel(
     onRevokeDevice: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
+    var permissionsExpanded by remember { mutableStateOf(false) }
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -352,6 +354,62 @@ private fun HostControlPanel(
                         else stringResource(R.string.start_server),
                     )
                 }
+
+                FilledTonalButton(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = {
+                        MediaBusHaptics.performTap(context)
+                        permissionsExpanded = !permissionsExpanded
+                    },
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(stringResource(R.string.permissions_title))
+                        Text(if (permissionsExpanded) "▴" else "▾")
+                    }
+                }
+
+                if (permissionsExpanded) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.55f),
+                                shape = RoundedCornerShape(12.dp),
+                            )
+                            .border(
+                                width = 1.dp,
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f),
+                                shape = RoundedCornerShape(12.dp),
+                            )
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        SettingToggleRow(
+                            label = stringResource(R.string.show_hidden_files),
+                            checked = uiState.showHiddenFiles,
+                            onCheckedChange = onToggleHiddenFiles,
+                        )
+                        SettingToggleRow(
+                            label = stringResource(R.string.allow_upload),
+                            checked = uiState.allowUpload,
+                            onCheckedChange = onToggleAllowUpload,
+                        )
+                        SettingToggleRow(
+                            label = stringResource(R.string.allow_download),
+                            checked = uiState.allowDownload,
+                            onCheckedChange = onToggleAllowDownload,
+                        )
+                        SettingToggleRow(
+                            label = stringResource(R.string.allow_delete),
+                            checked = uiState.allowDelete,
+                            onCheckedChange = onToggleAllowDelete,
+                        )
+                    }
+                }
             }
         }
 
@@ -392,26 +450,6 @@ private fun HostControlPanel(
                         Text(stringResource(R.string.select_folder))
                     }
                 }
-                SettingToggleRow(
-                    label = stringResource(R.string.show_hidden_files),
-                    checked = uiState.showHiddenFiles,
-                    onCheckedChange = onToggleHiddenFiles,
-                )
-                SettingToggleRow(
-                    label = stringResource(R.string.allow_upload),
-                    checked = uiState.allowUpload,
-                    onCheckedChange = onToggleAllowUpload,
-                )
-                SettingToggleRow(
-                    label = stringResource(R.string.allow_download),
-                    checked = uiState.allowDownload,
-                    onCheckedChange = onToggleAllowDownload,
-                )
-                SettingToggleRow(
-                    label = stringResource(R.string.allow_delete),
-                    checked = uiState.allowDelete,
-                    onCheckedChange = onToggleAllowDelete,
-                )
             }
         }
 

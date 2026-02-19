@@ -32,6 +32,9 @@
     <string name="allow_upload">Allow upload</string>
     <string name="allow_download">Allow download</string>
     <string name="allow_delete">Allow delete</string>
+    <string name="permissions_title">Permissions</string>
+    <string name="permissions_show">Show</string>
+    <string name="permissions_hide">Hide</string>
     <string name="no_paired_devices">No paired devices yet</string>
     <string name="last_seen_label">Last connected: %1$s</string>
 
