@@ -132,6 +132,7 @@ function DriveView({
   path,
   canGoUp,
   items,
+  selectedPaths,
   log,
   transfer,
   permissions,
@@ -142,6 +143,10 @@ function DriveView({
   onDeleteItem,
   onCreateFolder,
   onRenameItem,
+  onToggleSelectPath,
+  onToggleSelectAll,
+  onBatchDownload,
+  onBatchDelete,
   onCancelUpload,
 }) {
   const crumbs = pathCrumbs(path)
@@ -150,6 +155,7 @@ function DriveView({
     return window.matchMedia('(max-width: 760px)').matches
   })
   const [openMenuPath, setOpenMenuPath] = useState('')
+  const selectAllRef = useRef(null)
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined
@@ -184,6 +190,15 @@ function DriveView({
       document.removeEventListener('keydown', onEscape)
     }
   }, [openMenuPath])
+
+  const selectedSet = useMemo(() => new Set(selectedPaths || []), [selectedPaths])
+  const selectedCount = selectedSet.size
+  const allSelected = items.length > 0 && items.every((item) => selectedSet.has(item.path))
+
+  useEffect(() => {
+    if (!selectAllRef.current) return
+    selectAllRef.current.indeterminate = selectedCount > 0 && !allSelected
+  }, [selectedCount, allSelected])
 
   function downloadHrefFor(item) {
     if (busy || !permissions.allowDownload) return undefined
@@ -271,7 +286,7 @@ function DriveView({
     )
   }
 
-  const visibleColumnCount = isMobile ? 1 : 4
+  const visibleColumnCount = isMobile ? 2 : 5
 
   return (
     <section className="drive-layout">
@@ -294,54 +309,81 @@ function DriveView({
         </header>
 
         <div className="toolbar modern-toolbar">
-          <label
-            className="btn btn-primary file-btn icon-btn control-btn"
-            aria-disabled={!permissions.allowUpload}
-            title="Upload File"
-            aria-label="Upload File"
-          >
-            <span className="icon-symbol">↑📄</span>
-            <span className="control-label">Upload File</span>
-            <input
-              type="file"
-              multiple
-              disabled={busy || !permissions.allowUpload}
-              onChange={(e) => {
-                onUploadFiles(e.currentTarget.files)
-                e.currentTarget.value = ''
-              }}
-            />
-          </label>
-          <label
-            className="btn btn-primary file-btn icon-btn control-btn"
-            aria-disabled={!permissions.allowUpload}
-            title="Upload Folder"
-            aria-label="Upload Folder"
-          >
-            <span className="icon-symbol">↑📁</span>
-            <span className="control-label">Upload Folder</span>
-            <input
-              type="file"
-              webkitdirectory=""
-              directory=""
-              multiple
-              disabled={busy || !permissions.allowUpload}
-              onChange={(e) => {
-                onUploadFolder(e.currentTarget.files)
-                e.currentTarget.value = ''
-              }}
-            />
-          </label>
-          <button
-            className="btn icon-btn control-btn"
-            title="New Folder"
-            aria-label="New Folder"
-            disabled={busy || !permissions.allowUpload}
-            onClick={onCreateFolder}
-          >
-            <span className="icon-symbol">+📁</span>
-            <span className="control-label">New Folder</span>
-          </button>
+          {selectedCount > 0 ? (
+            <>
+              <button
+                className="btn btn-primary icon-btn control-btn"
+                title="Download selected as zip"
+                aria-label="Download selected as zip"
+                disabled={busy || !permissions.allowDownload}
+                onClick={onBatchDownload}
+              >
+                <span className="icon-symbol">⬇</span>
+                <span className="control-label">Download ({selectedCount})</span>
+              </button>
+              <button
+                className="btn btn-danger icon-btn control-btn"
+                title="Delete selected"
+                aria-label="Delete selected"
+                disabled={busy || !permissions.allowDelete}
+                onClick={onBatchDelete}
+              >
+                <span className="icon-symbol">🗑</span>
+                <span className="control-label">Delete ({selectedCount})</span>
+              </button>
+            </>
+          ) : (
+            <>
+              <label
+                className="btn btn-primary file-btn icon-btn control-btn"
+                aria-disabled={!permissions.allowUpload}
+                title="Upload File"
+                aria-label="Upload File"
+              >
+                <span className="icon-symbol">↑📄</span>
+                <span className="control-label">Upload File</span>
+                <input
+                  type="file"
+                  multiple
+                  disabled={busy || !permissions.allowUpload}
+                  onChange={(e) => {
+                    onUploadFiles(e.currentTarget.files)
+                    e.currentTarget.value = ''
+                  }}
+                />
+              </label>
+              <label
+                className="btn btn-primary file-btn icon-btn control-btn"
+                aria-disabled={!permissions.allowUpload}
+                title="Upload Folder"
+                aria-label="Upload Folder"
+              >
+                <span className="icon-symbol">↑📁</span>
+                <span className="control-label">Upload Folder</span>
+                <input
+                  type="file"
+                  webkitdirectory=""
+                  directory=""
+                  multiple
+                  disabled={busy || !permissions.allowUpload}
+                  onChange={(e) => {
+                    onUploadFolder(e.currentTarget.files)
+                    e.currentTarget.value = ''
+                  }}
+                />
+              </label>
+              <button
+                className="btn icon-btn control-btn"
+                title="New Folder"
+                aria-label="New Folder"
+                disabled={busy || !permissions.allowUpload}
+                onClick={onCreateFolder}
+              >
+                <span className="icon-symbol">+📁</span>
+                <span className="control-label">New Folder</span>
+              </button>
+            </>
+          )}
         </div>
 
         {log && <div className="status-log-line">{log}</div>}
@@ -377,6 +419,17 @@ function DriveView({
           <table className={`modern-table ${isMobile ? 'mobile' : ''}`}>
             <thead>
               <tr>
+                <th className="select-col">
+                  <input
+                    ref={selectAllRef}
+                    className="row-select"
+                    type="checkbox"
+                    aria-label="Select all"
+                    checked={allSelected}
+                    disabled={busy || items.length === 0}
+                    onChange={(event) => onToggleSelectAll(event.currentTarget.checked)}
+                  />
+                </th>
                 <th>Name</th>
                 {!isMobile && <th>Modified</th>}
                 {!isMobile && <th className="size-col">Size</th>}
@@ -396,6 +449,16 @@ function DriveView({
               {items.map((item) => (
                 item.directory ? (
                   <tr key={item.path}>
+                    <td className="select-cell">
+                      <input
+                        className="row-select"
+                        type="checkbox"
+                        aria-label={`Select ${item.name}`}
+                        checked={selectedSet.has(item.path)}
+                        disabled={busy}
+                        onChange={(event) => onToggleSelectPath(item.path, event.currentTarget.checked)}
+                      />
+                    </td>
                     <td>
                       <div className="row-main">
                         <button className="row-name" onClick={() => onLoadPath(item.path)}>
@@ -449,6 +512,16 @@ function DriveView({
                   </tr>
                 ) : (
                   <tr key={item.path}>
+                    <td className="select-cell">
+                      <input
+                        className="row-select"
+                        type="checkbox"
+                        aria-label={`Select ${item.name}`}
+                        checked={selectedSet.has(item.path)}
+                        disabled={busy}
+                        onChange={(event) => onToggleSelectPath(item.path, event.currentTarget.checked)}
+                      />
+                    </td>
                     <td>
                       <div className="row-main">
                         <div className="row-name static">
@@ -519,6 +592,7 @@ export default function App() {
 
   const [path, setPath] = useState('')
   const [items, setItems] = useState([])
+  const [selectedPaths, setSelectedPaths] = useState([])
   const [log, setLog] = useState('')
   const [transfer, setTransfer] = useState({
     active: false,
@@ -581,6 +655,7 @@ export default function App() {
     if (!silent) {
       setPath(requestedPath)
       setItems([])
+      setSelectedPaths([])
       setPathLoading(true)
     }
     try {
@@ -607,6 +682,7 @@ export default function App() {
         }
         revealNext()
       }
+      setSelectedPaths((prev) => prev.filter((selectedPath) => nextItems.some((item) => item.path === selectedPath)))
       if (!silent) setLog('')
     } catch (err) {
       if (requestSeq !== loadRequestSeqRef.current) return
@@ -781,6 +857,66 @@ export default function App() {
     }
   }
 
+  function toggleSelectPath(itemPath, checked) {
+    setSelectedPaths((prev) => {
+      if (checked) {
+        if (prev.includes(itemPath)) return prev
+        return [...prev, itemPath]
+      }
+      return prev.filter((pathValue) => pathValue !== itemPath)
+    })
+  }
+
+  function toggleSelectAll(checked) {
+    if (checked) {
+      setSelectedPaths(items.map((item) => item.path))
+      return
+    }
+    setSelectedPaths([])
+  }
+
+  async function batchDeleteSelected() {
+    if (selectedPaths.length === 0) return
+    if (!permissions.allowDelete) {
+      setError('Deletes are disabled by host settings.')
+      return
+    }
+    const ok = window.confirm(`Delete ${selectedPaths.length} selected item(s)?`)
+    if (!ok) return
+    setBusy(true)
+    setError('')
+    try {
+      for (const itemPath of selectedPaths) {
+        await api(`/api/files/delete?path=${encodeURIComponent(itemPath)}`, { method: 'DELETE' })
+      }
+      setLog(`Deleted ${selectedPaths.length} item(s)`)
+      setSelectedPaths([])
+      await loadPath(path)
+    } catch (err) {
+      setError(friendlyErrorMessage(err.message || 'Batch delete failed'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function batchDownloadSelected() {
+    if (selectedPaths.length === 0) return
+    if (!permissions.allowDownload) {
+      setError('Downloads are disabled by host settings.')
+      return
+    }
+    const params = new URLSearchParams()
+    selectedPaths.forEach((itemPath) => params.append('path', itemPath))
+    const href = `/api/files/download-zip-batch?${params.toString()}`
+    const link = document.createElement('a')
+    link.href = href
+    link.style.display = 'none'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    setLog(`Downloading ${selectedPaths.length} selected item(s)`)
+  }
+
   async function createFolder() {
     if (!permissions.allowUpload) {
       setError('Folder creation is disabled by host settings.')
@@ -919,6 +1055,7 @@ export default function App() {
           path={path}
           canGoUp={(path || '').split('/').filter(Boolean).length > 0}
           items={items}
+          selectedPaths={selectedPaths}
           log={log}
           transfer={transfer}
           permissions={permissions}
@@ -929,6 +1066,10 @@ export default function App() {
           onDeleteItem={deleteItem}
           onCreateFolder={createFolder}
           onRenameItem={renameItem}
+          onToggleSelectPath={toggleSelectPath}
+          onToggleSelectAll={toggleSelectAll}
+          onBatchDownload={batchDownloadSelected}
+          onBatchDelete={batchDeleteSelected}
           onCancelUpload={cancelUpload}
         />
       )}

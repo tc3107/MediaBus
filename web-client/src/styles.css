@@ -464,6 +464,27 @@ body {
   border-bottom: 1px solid var(--line);
 }
 
+.select-col,
+.select-cell {
+  width: 44px;
+  min-width: 44px;
+  text-align: center;
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+.row-select {
+  width: 16px;
+  height: 16px;
+  accent-color: #63c0ff;
+  cursor: pointer;
+}
+
+.row-select:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 .modern-table tbody tr {
   background: rgba(14, 22, 38, 0.58);
 }
@@ -691,6 +712,14 @@ body {
   .modern-table.mobile th,
   .modern-table.mobile td {
     padding: 10px 10px;
+  }
+
+  .modern-table.mobile .select-col,
+  .modern-table.mobile .select-cell {
+    width: 40px;
+    min-width: 40px;
+    padding-left: 6px;
+    padding-right: 6px;
   }
 
   .modern-table.mobile .row-name {

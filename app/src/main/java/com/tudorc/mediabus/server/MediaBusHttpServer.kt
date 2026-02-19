@@ -115,6 +115,10 @@ class MediaBusHttpServer(
                     handleDownloadZip(session)
                 }
 
+                session.method == Method.GET && session.uri == "/api/files/download-zip-batch" -> {
+                    handleDownloadZipBatch(session)
+                }
+
                 session.method == Method.PUT && session.uri == "/api/files/upload" -> {
                     handleUpload(session)
                 }
@@ -404,6 +408,101 @@ class MediaBusHttpServer(
             TicketLifecycleInputStream(pipeIn, ticket),
         ).apply {
             addHeader("Content-Disposition", "attachment; filename=\"${fileName.replace("\"", "")}\"")
+            addHeader("Cache-Control", "no-store")
+        }
+    }
+
+    private fun handleDownloadZipBatch(session: IHTTPSession): Response {
+        if (!runtime.downloadEnabled()) {
+            return newFixedLengthResponse(Response.Status.FORBIDDEN, MIME_PLAINTEXT, "Downloads are disabled")
+        }
+        val auth = authenticatedDevice(session) ?: return unauthorized()
+        val root = rootDocument() ?: return sharedFolderUnavailable()
+
+        val rawPaths = session.parameters["path"].orEmpty()
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+        if (rawPaths.isEmpty()) {
+            return newFixedLengthResponse(Response.Status.BAD_REQUEST, MIME_PLAINTEXT, "Missing file paths")
+        }
+
+        val includeHidden = runtime.showHiddenFiles()
+        val uniquePaths = linkedSetOf<String>()
+        val nodes = mutableListOf<Pair<String, DocumentFile>>()
+        var totalBytes = 0L
+        for (rawPath in rawPaths) {
+            val segments = normalizePath(rawPath)
+            if (segments.isEmpty()) {
+                return newFixedLengthResponse(Response.Status.BAD_REQUEST, MIME_PLAINTEXT, "Invalid file path")
+            }
+            val joined = segments.joinToString("/")
+            if (!uniquePaths.add(joined)) {
+                continue
+            }
+            if (!includeHidden && segments.any { it.startsWith('.') }) {
+                return newFixedLengthResponse(Response.Status.FORBIDDEN, MIME_PLAINTEXT, "Hidden paths are disabled")
+            }
+            val node = resolveNode(root, segments)
+                ?: return newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "File not found: $joined")
+            nodes += joined to node
+            totalBytes += calculateTreeSize(node)
+        }
+
+        val ticket = runtime.beginTransfer(
+            deviceId = auth.device.deviceId,
+            direction = TransferDirection.Downloading,
+            totalBytes = totalBytes,
+        ) ?: return newFixedLengthResponse(Response.Status.FORBIDDEN, MIME_PLAINTEXT, "Transfer unavailable")
+        ServerLogger.i(
+            LOG_COMPONENT,
+            "download batch zip start deviceId=${auth.device.deviceId} count=${nodes.size} estimatedBytes=$totalBytes",
+        )
+
+        val pipeOut = java.io.PipedOutputStream()
+        val pipeIn = java.io.PipedInputStream(pipeOut, 64 * 1024)
+        zipExecutor.execute {
+            try {
+                ZipOutputStream(BufferedOutputStream(pipeOut)).use { zip ->
+                    val usedNames = linkedSetOf<String>()
+                    nodes.forEach { (_, node) ->
+                        if (ticket.cancelled()) throw IOException("cancelled")
+                        val preferredName = node.name.orEmpty().ifBlank { "item" }
+                        val entryName = uniqueEntryName(usedNames, preferredName)
+                        if (node.isDirectory) {
+                            zip.putNextEntry(ZipEntry("$entryName/"))
+                            zip.closeEntry()
+                            zipDirectory(node, entryName, zip, ticket)
+                        } else if (node.isFile) {
+                            zip.putNextEntry(ZipEntry(entryName))
+                            appContext.contentResolver.openInputStream(node.uri)?.use { input ->
+                                val buffered = BufferedInputStream(input)
+                                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                                while (true) {
+                                    if (ticket.cancelled()) {
+                                        throw IOException("cancelled")
+                                    }
+                                    val read = buffered.read(buffer)
+                                    if (read <= 0) break
+                                    zip.write(buffer, 0, read)
+                                    ticket.addProgress(read.toLong())
+                                }
+                            }
+                            zip.closeEntry()
+                        }
+                    }
+                }
+            } catch (_: Throwable) {
+            } finally {
+                runCatching { pipeOut.close() }
+            }
+        }
+
+        return newChunkedResponse(
+            Response.Status.OK,
+            "application/zip",
+            TicketLifecycleInputStream(pipeIn, ticket),
+        ).apply {
+            addHeader("Content-Disposition", "attachment; filename=\"mediabus-selection.zip\"")
             addHeader("Cache-Control", "no-store")
         }
     }
@@ -787,6 +886,21 @@ class MediaBusHttpServer(
         }
     }
 
+    private fun uniqueEntryName(usedNames: MutableSet<String>, originalName: String): String {
+        if (usedNames.add(originalName)) return originalName
+        val dot = originalName.lastIndexOf('.')
+        val base = if (dot > 0) originalName.substring(0, dot) else originalName
+        val ext = if (dot > 0) originalName.substring(dot) else ""
+        var index = 1
+        while (true) {
+            val candidate = "$base ($index)$ext"
+            if (usedNames.add(candidate)) {
+                return candidate
+            }
+            index++
+        }
+    }
+
     private fun unauthorized(): Response {
         ServerLogger.w(LOG_COMPONENT, "Returning unauthorized response")
         return newFixedLengthResponse(Response.Status.UNAUTHORIZED, MIME_PLAINTEXT, "Unauthorized")
@@ -905,6 +1019,7 @@ class MediaBusHttpServer(
             "/api/files/upload",
             "/api/files/download",
             "/api/files/download-zip",
+            "/api/files/download-zip-batch",
             "/api/files/delete",
             "/api/files/mkdir",
             "/api/files/rename",
