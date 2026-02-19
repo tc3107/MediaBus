@@ -285,7 +285,7 @@ class MediaBusHostService : LifecycleService() {
                     runtime = runtime,
                 )
                 withContext(Dispatchers.IO) {
-                    httpServer.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false)
+                    httpServer.start(SOCKET_READ_TIMEOUT_MS, false)
                 }
                 startedServer = httpServer
                 withContext(Dispatchers.IO) {
@@ -514,6 +514,7 @@ class MediaBusHostService : LifecycleService() {
         private const val NOTIFICATION_ID = 4041
 
         const val SERVER_PORT = 8443
+        private const val SOCKET_READ_TIMEOUT_MS = 60_000
         const val DEFAULT_HOST_NAME = "mediabus.local"
         private const val LOG_COMPONENT = "HostService"
 

@@ -31,6 +31,9 @@ data class HostControlUiState(
     val availableIps: List<String> = emptyList(),
     val selectedHostIp: String? = null,
     val showHiddenFiles: Boolean = false,
+    val allowUpload: Boolean = true,
+    val allowDownload: Boolean = true,
+    val allowDelete: Boolean = true,
     val pairedDevices: List<PairedDeviceStatus> = emptyList(),
     val transferSummary: TransferSummary = TransferSummary(),
 ) {
@@ -74,6 +77,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             availableIps = availableIps,
             selectedHostIp = settings.selectedHostIp,
             showHiddenFiles = settings.showHiddenFiles,
+            allowUpload = settings.allowUpload,
+            allowDownload = settings.allowDownload,
+            allowDelete = settings.allowDelete,
             pairedDevices = statuses,
             transferSummary = serviceState.transferSummary,
         )
@@ -125,6 +131,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun onAllowUpload(enabled: Boolean) {
+        viewModelScope.launch {
+            repository.setAllowUpload(enabled)
+        }
+    }
+
+    fun onAllowDownload(enabled: Boolean) {
+        viewModelScope.launch {
+            repository.setAllowDownload(enabled)
+        }
+    }
+
+    fun onAllowDelete(enabled: Boolean) {
+        viewModelScope.launch {
+            repository.setAllowDelete(enabled)
+        }
+    }
+
     fun approvePairCode(code: String): HostActionResult {
         return MediaBusHostService.approvePairByCode(code.trim())
     }
@@ -144,14 +168,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun revokeDevice(deviceId: String): Boolean {
         val removedInService = MediaBusHostService.revokeDevice(deviceId)
-        if (removedInService) {
-            return true
-        }
-
-        viewModelScope.launch {
-            repository.removePairedDevice(deviceId)
-        }
-        return true
+        return removedInService
     }
 
     private fun extractToken(payload: String): String? {

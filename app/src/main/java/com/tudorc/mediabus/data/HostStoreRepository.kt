@@ -27,6 +27,9 @@ class HostStoreRepository(private val appContext: Context) {
             sharedFolderUri = preferences[sharedFolderUriKey],
             selectedHostIp = preferences[selectedHostIpKey],
             showHiddenFiles = preferences[showHiddenFilesKey] ?: false,
+            allowUpload = preferences[allowUploadKey] ?: true,
+            allowDownload = preferences[allowDownloadKey] ?: true,
+            allowDelete = preferences[allowDeleteKey] ?: true,
         )
     }
 
@@ -61,6 +64,24 @@ class HostStoreRepository(private val appContext: Context) {
     suspend fun setShowHiddenFiles(enabled: Boolean) {
         store.edit { preferences ->
             preferences[showHiddenFilesKey] = enabled
+        }
+    }
+
+    suspend fun setAllowUpload(enabled: Boolean) {
+        store.edit { preferences ->
+            preferences[allowUploadKey] = enabled
+        }
+    }
+
+    suspend fun setAllowDownload(enabled: Boolean) {
+        store.edit { preferences ->
+            preferences[allowDownloadKey] = enabled
+        }
+    }
+
+    suspend fun setAllowDelete(enabled: Boolean) {
+        store.edit { preferences ->
+            preferences[allowDeleteKey] = enabled
         }
     }
 
@@ -137,6 +158,9 @@ class HostStoreRepository(private val appContext: Context) {
         private val sharedFolderUriKey = stringPreferencesKey("shared_folder_uri")
         private val selectedHostIpKey = stringPreferencesKey("selected_host_ip")
         private val showHiddenFilesKey = booleanPreferencesKey("show_hidden_files")
+        private val allowUploadKey = booleanPreferencesKey("allow_upload")
+        private val allowDownloadKey = booleanPreferencesKey("allow_download")
+        private val allowDeleteKey = booleanPreferencesKey("allow_delete")
         private val pairedDevicesJsonKey = stringPreferencesKey("paired_devices_json")
         private val signingSecretKey = stringPreferencesKey("signing_secret")
         private val random = SecureRandom()

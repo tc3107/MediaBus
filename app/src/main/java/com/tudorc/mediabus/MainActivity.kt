@@ -43,6 +43,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -202,6 +203,18 @@ class MainActivity : ComponentActivity() {
                             MediaBusHaptics.performTap(context)
                             viewModel.onShowHiddenFiles(enabled)
                         },
+                        onToggleAllowUpload = { enabled ->
+                            MediaBusHaptics.performTap(context)
+                            viewModel.onAllowUpload(enabled)
+                        },
+                        onToggleAllowDownload = { enabled ->
+                            MediaBusHaptics.performTap(context)
+                            viewModel.onAllowDownload(enabled)
+                        },
+                        onToggleAllowDelete = { enabled ->
+                            MediaBusHaptics.performTap(context)
+                            viewModel.onAllowDelete(enabled)
+                        },
                         onRevokeDevice = { deviceId ->
                             MediaBusHaptics.performTap(context)
                             viewModel.revokeDevice(deviceId)
@@ -280,6 +293,9 @@ private fun HostControlPanel(
     onOpenManualPair: () -> Unit,
     onOpenScanner: () -> Unit,
     onToggleHiddenFiles: (Boolean) -> Unit,
+    onToggleAllowUpload: (Boolean) -> Unit,
+    onToggleAllowDownload: (Boolean) -> Unit,
+    onToggleAllowDelete: (Boolean) -> Unit,
     onRevokeDevice: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -375,17 +391,27 @@ private fun HostControlPanel(
                     FilledTonalButton(onClick = onSelectFolder) {
                         Text(stringResource(R.string.select_folder))
                     }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = stringResource(R.string.show_hidden_files),
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                        Switch(
-                            checked = uiState.showHiddenFiles,
-                            onCheckedChange = onToggleHiddenFiles,
-                        )
-                    }
                 }
+                SettingToggleRow(
+                    label = stringResource(R.string.show_hidden_files),
+                    checked = uiState.showHiddenFiles,
+                    onCheckedChange = onToggleHiddenFiles,
+                )
+                SettingToggleRow(
+                    label = stringResource(R.string.allow_upload),
+                    checked = uiState.allowUpload,
+                    onCheckedChange = onToggleAllowUpload,
+                )
+                SettingToggleRow(
+                    label = stringResource(R.string.allow_download),
+                    checked = uiState.allowDownload,
+                    onCheckedChange = onToggleAllowDownload,
+                )
+                SettingToggleRow(
+                    label = stringResource(R.string.allow_delete),
+                    checked = uiState.allowDelete,
+                    onCheckedChange = onToggleAllowDelete,
+                )
             }
         }
 
@@ -452,6 +478,28 @@ private fun HostControlPanel(
 }
 
 @Composable
+private fun SettingToggleRow(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+        )
+    }
+}
+
+@Composable
 private fun animatedStatusBorderBrush(baseColor: Color): Brush {
     val transition = rememberInfiniteTransition(label = "server-controls-border")
     val phase by transition.animateFloat(
@@ -484,6 +532,16 @@ private fun animatedStatusBorderBrush(baseColor: Color): Brush {
 private fun StatsCard(uiState: HostControlUiState) {
     val summary = uiState.transferSummary
     val isActive = summary.inProgress
+    val overallProgress = if (summary.overallTotalBytes > 0L) {
+        (summary.overallTransferredBytes.toFloat() / summary.overallTotalBytes.toFloat()).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
+    val fileProgress = if (summary.currentFileTotalBytes > 0L) {
+        (summary.currentFileTransferredBytes.toFloat() / summary.currentFileTotalBytes.toFloat()).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
     Card(
         colors = CardDefaults.cardColors(
             containerColor = if (isActive) {
@@ -517,10 +575,44 @@ private fun StatsCard(uiState: HostControlUiState) {
                     TransferDirection.None -> stringResource(R.string.direction_transferring)
                 }
                 Text(
-                    text = "$direction ${summary.activeFiles}/${summary.totalFiles} Files - " +
-                        "${Formatters.formatBytes(summary.activeBytes)}/${Formatters.formatBytes(summary.totalBytes)}",
+                    text = "$direction ${summary.activeFiles}/${summary.totalFiles}",
                     color = MaterialTheme.colorScheme.onSurface,
                 )
+                Text(
+                    text = stringResource(
+                        R.string.transfer_progress_overall,
+                        Formatters.formatBytes(summary.overallTransferredBytes),
+                        Formatters.formatBytes(summary.overallTotalBytes),
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (summary.overallTotalBytes > 0L) {
+                    LinearProgressIndicator(
+                        progress = { overallProgress },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                } else {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
+
+                Text(
+                    text = stringResource(
+                        R.string.transfer_progress_current_file,
+                        Formatters.formatBytes(summary.currentFileTransferredBytes),
+                        Formatters.formatBytes(summary.currentFileTotalBytes),
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (summary.currentFileTotalBytes > 0L) {
+                    LinearProgressIndicator(
+                        progress = { fileProgress },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                } else {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
             }
         }
     }

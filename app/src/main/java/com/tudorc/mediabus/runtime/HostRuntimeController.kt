@@ -9,6 +9,7 @@ import com.tudorc.mediabus.model.TransferSummary
 import com.tudorc.mediabus.util.ServerLogger
 import com.tudorc.mediabus.util.UserAgentParser
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -35,9 +36,22 @@ class HostRuntimeController(
 
     private val sessionsById = hashMapOf<String, SessionInfo>()
     private val transferById = linkedMapOf<String, TransferInfo>()
+    private val revokedDeviceNotices = hashMapOf<String, Long>()
+    private var overallProcessTotalBytes = 0L
+    private var overallProcessTransferredBytes = 0L
+    private var currentUploadBatchId: String? = null
+    private var currentUploadBatchTotalFiles = 0
+    private var currentUploadBatchCompletedFiles = 0
+    private var currentUploadBatchActiveFiles = 0
 
     @Volatile
     private var showHiddenFiles = false
+    @Volatile
+    private var allowUpload = true
+    @Volatile
+    private var allowDownload = true
+    @Volatile
+    private var allowDelete = true
 
     private val random = SecureRandom()
 
@@ -68,12 +82,30 @@ class HostRuntimeController(
         scope.launch {
             repository.settingsFlow.collect { settings ->
                 showHiddenFiles = settings.showHiddenFiles
-                ServerLogger.d(LOG_COMPONENT, "showHiddenFiles=${settings.showHiddenFiles}")
+                allowUpload = settings.allowUpload
+                allowDownload = settings.allowDownload
+                allowDelete = settings.allowDelete
+                ServerLogger.d(
+                    LOG_COMPONENT,
+                    "settings showHiddenFiles=${settings.showHiddenFiles} allowUpload=${settings.allowUpload} allowDownload=${settings.allowDownload} allowDelete=${settings.allowDelete}",
+                )
+            }
+        }
+        scope.launch {
+            while (true) {
+                delay(PRESENCE_TICK_MS)
+                synchronized(lock) {
+                    cleanupExpiredLocked()
+                    publishLocked()
+                }
             }
         }
     }
 
     fun showHiddenFiles(): Boolean = showHiddenFiles
+    fun uploadEnabled(): Boolean = allowUpload
+    fun downloadEnabled(): Boolean = allowDownload
+    fun deleteEnabled(): Boolean = allowDelete
 
     fun ensurePendingChallenge(
         anonId: String,
@@ -156,6 +188,7 @@ class HostRuntimeController(
     fun revokeDevice(deviceId: String): Boolean {
         synchronized(lock) {
             val removed = pairedDevices.remove(deviceId) ?: return false
+            revokedDeviceNotices[deviceId] = now()
             val runtimeState = deviceRuntime[deviceId]
             if (runtimeState != null) {
                 runtimeState.cancelGeneration += 1
@@ -168,6 +201,22 @@ class HostRuntimeController(
             persistDevicesLocked()
             ServerLogger.i(LOG_COMPONENT, "Revoked deviceId=$deviceId")
             return true
+        }
+    }
+
+    fun consumeRevocationNotice(sessionCookie: String?): String? {
+        val payload = parseSessionCookie(sessionCookie) ?: return null
+        val deviceId = payload.optString("deviceId")
+        if (deviceId.isBlank()) return null
+        synchronized(lock) {
+            cleanupExpiredLocked()
+            val revokedAt = revokedDeviceNotices[deviceId] ?: return null
+            if (now() - revokedAt > REVOKE_NOTICE_TTL_MS) {
+                revokedDeviceNotices.remove(deviceId)
+                return null
+            }
+            revokedDeviceNotices.remove(deviceId)
+            return "Access revoked by host"
         }
     }
 
@@ -263,12 +312,36 @@ class HostRuntimeController(
         deviceId: String,
         direction: TransferDirection,
         totalBytes: Long,
+        batchId: String? = null,
+        batchTotalFiles: Int = 0,
     ): TransferTicket? {
         val runtime: DeviceRuntime
         val transfer: TransferInfo
+        val normalizedBatchId = batchId?.takeIf { it.isNotBlank() }
         synchronized(lock) {
+            if (transferById.isEmpty() && (normalizedBatchId == null || normalizedBatchId != currentUploadBatchId)) {
+                overallProcessTotalBytes = 0L
+                overallProcessTransferredBytes = 0L
+            }
             if (!pairedDevices.containsKey(deviceId)) {
                 return null
+            }
+            if (direction == TransferDirection.Uploading && normalizedBatchId != null && batchTotalFiles > 0) {
+                if (currentUploadBatchId != normalizedBatchId) {
+                    currentUploadBatchId = normalizedBatchId
+                    currentUploadBatchTotalFiles = batchTotalFiles
+                    currentUploadBatchCompletedFiles = 0
+                    currentUploadBatchActiveFiles = 0
+                    overallProcessTotalBytes = 0L
+                    overallProcessTransferredBytes = 0L
+                } else {
+                    currentUploadBatchTotalFiles = max(currentUploadBatchTotalFiles, batchTotalFiles)
+                }
+            } else if (direction == TransferDirection.Uploading && normalizedBatchId == null && transferById.isEmpty()) {
+                currentUploadBatchId = null
+                currentUploadBatchTotalFiles = 0
+                currentUploadBatchCompletedFiles = 0
+                currentUploadBatchActiveFiles = 0
             }
             runtime = deviceRuntime.getOrPut(deviceId) { DeviceRuntime() }
             runtime.queuedTransfers++
@@ -280,7 +353,11 @@ class HostRuntimeController(
                 transferredBytes = 0L,
                 active = false,
                 generation = runtime.cancelGeneration,
+                batchId = normalizedBatchId,
             )
+            if (totalBytes > 0L) {
+                overallProcessTotalBytes += totalBytes
+            }
             transferById[transfer.id] = transfer
             publishLocked()
             ServerLogger.i(
@@ -307,6 +384,13 @@ class HostRuntimeController(
             }
             currentRuntime.activeTransfers++
             currentTransfer.active = true
+            if (
+                currentTransfer.direction == TransferDirection.Uploading &&
+                currentTransfer.batchId != null &&
+                currentTransfer.batchId == currentUploadBatchId
+            ) {
+                currentUploadBatchActiveFiles++
+            }
             publishLocked()
             ServerLogger.i(
                 LOG_COMPONENT,
@@ -320,6 +404,7 @@ class HostRuntimeController(
                     val current = transferById[transfer.id] ?: return@TransferTicket
                     if (delta > 0) {
                         current.transferredBytes += delta
+                        overallProcessTransferredBytes += delta
                         publishLocked()
                     }
                 }
@@ -337,7 +422,31 @@ class HostRuntimeController(
                     if (currentRuntime != null && currentTransfer != null && currentTransfer.active) {
                         currentRuntime.activeTransfers = max(0, currentRuntime.activeTransfers - 1)
                     }
+                    if (
+                        currentTransfer != null &&
+                        currentTransfer.direction == TransferDirection.Uploading &&
+                        currentTransfer.batchId != null &&
+                        currentTransfer.batchId == currentUploadBatchId &&
+                        currentTransfer.active
+                    ) {
+                        currentUploadBatchActiveFiles = max(0, currentUploadBatchActiveFiles - 1)
+                        currentUploadBatchCompletedFiles = (currentUploadBatchCompletedFiles + 1)
+                            .coerceAtMost(max(1, currentUploadBatchTotalFiles))
+                    }
                     publishLocked()
+                    if (transferById.isEmpty()) {
+                        val batchDone = currentUploadBatchId != null &&
+                            currentUploadBatchTotalFiles > 0 &&
+                            currentUploadBatchCompletedFiles >= currentUploadBatchTotalFiles
+                        if (batchDone || currentUploadBatchId == null) {
+                            overallProcessTotalBytes = 0L
+                            overallProcessTransferredBytes = 0L
+                            currentUploadBatchId = null
+                            currentUploadBatchTotalFiles = 0
+                            currentUploadBatchCompletedFiles = 0
+                            currentUploadBatchActiveFiles = 0
+                        }
+                    }
                     if (currentTransfer != null) {
                         ServerLogger.i(
                             LOG_COMPONENT,
@@ -489,6 +598,12 @@ class HostRuntimeController(
         if (expiredSessions.isNotEmpty()) {
             ServerLogger.d(LOG_COMPONENT, "Expired sessions cleaned=${expiredSessions.size}")
         }
+
+        val expiredRevocationNotices = revokedDeviceNotices
+            .filterValues { now - it > REVOKE_NOTICE_TTL_MS }
+            .keys
+            .toList()
+        expiredRevocationNotices.forEach { revokedDeviceNotices.remove(it) }
     }
 
     private fun publishLocked() {
@@ -526,13 +641,38 @@ class HostRuntimeController(
         val activeBytes = transferById.values
             .filter { it.active }
             .sumOf { value -> max(0L, value.transferredBytes) }
+        val firstActive = transferById.values.firstOrNull { it.active }
+        val currentFileTransferredBytes = max(0L, firstActive?.transferredBytes ?: 0L)
+        val currentFileTotalBytes = max(0L, firstActive?.totalBytes ?: 0L)
+        val overallTotalBytes = if (overallProcessTotalBytes > 0L) overallProcessTotalBytes else totalBytes
+        val overallTransferredBytes = if (overallProcessTotalBytes > 0L) {
+            overallProcessTransferredBytes.coerceAtMost(overallProcessTotalBytes)
+        } else {
+            activeBytes
+        }
+        var summaryActiveFiles = active
+        var summaryTotalFiles = active + queued
+        if (currentUploadBatchId != null && currentUploadBatchTotalFiles > 0) {
+            val hasActiveUploadBatch = transferById.values.any { transfer ->
+                transfer.direction == TransferDirection.Uploading && transfer.batchId == currentUploadBatchId
+            }
+            if (hasActiveUploadBatch) {
+                summaryActiveFiles = (currentUploadBatchCompletedFiles + currentUploadBatchActiveFiles)
+                    .coerceIn(0, currentUploadBatchTotalFiles)
+                summaryTotalFiles = currentUploadBatchTotalFiles
+            }
+        }
         _transferSummary.value = TransferSummary(
             inProgress = transferById.isNotEmpty(),
             direction = direction,
-            activeFiles = active,
-            totalFiles = active + queued,
+            activeFiles = summaryActiveFiles,
+            totalFiles = summaryTotalFiles,
             activeBytes = activeBytes,
             totalBytes = totalBytes,
+            overallTransferredBytes = overallTransferredBytes,
+            overallTotalBytes = overallTotalBytes,
+            currentFileTransferredBytes = currentFileTransferredBytes,
+            currentFileTotalBytes = currentFileTotalBytes,
         )
     }
 
@@ -622,6 +762,7 @@ class HostRuntimeController(
         var transferredBytes: Long,
         var active: Boolean,
         val generation: Int,
+        val batchId: String? = null,
     )
 
     private class DeviceRuntime {
@@ -637,7 +778,9 @@ class HostRuntimeController(
         private const val PAIR_CODE_TTL_MS = 2 * 60 * 1000L
         private const val SESSION_TTL_MS = 12 * 60 * 60 * 1000L
         private const val TRUST_COOKIE_TTL_MS = 30L * 24 * 60 * 60 * 1000L
-        private const val CONNECTED_WINDOW_MS = 45_000L
+        private const val CONNECTED_WINDOW_MS = 12_000L
+        private const val PRESENCE_TICK_MS = 1_500L
+        private const val REVOKE_NOTICE_TTL_MS = 60_000L
         private const val MAX_PAIRED_DEVICES = 20
         private const val MAX_CONCURRENT_CLIENTS = 5
         private const val LOG_COMPONENT = "Runtime"

@@ -4,6 +4,9 @@ data class HostSettings(
     val sharedFolderUri: String? = null,
     val selectedHostIp: String? = null,
     val showHiddenFiles: Boolean = false,
+    val allowUpload: Boolean = true,
+    val allowDownload: Boolean = true,
+    val allowDelete: Boolean = true,
 )
 
 data class PairedDevice(
@@ -42,4 +45,8 @@ data class TransferSummary(
     val totalFiles: Int = 0,
     val activeBytes: Long = 0L,
     val totalBytes: Long = 0L,
+    val overallTransferredBytes: Long = 0L,
+    val overallTotalBytes: Long = 0L,
+    val currentFileTransferredBytes: Long = 0L,
+    val currentFileTotalBytes: Long = 0L,
 )

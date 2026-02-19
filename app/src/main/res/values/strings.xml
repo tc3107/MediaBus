@@ -29,12 +29,19 @@
     <string name="select_bind_ip">Select bind IP (LAN/hotspot)</string>
 
     <string name="show_hidden_files">Show hidden</string>
+    <string name="allow_upload">Allow upload</string>
+    <string name="allow_download">Allow download</string>
+    <string name="allow_delete">Allow delete</string>
     <string name="no_paired_devices">No paired devices yet</string>
     <string name="last_seen_label">Last connected: %1$s</string>
 
     <string name="direction_uploading">Uploading</string>
     <string name="direction_downloading">Downloading</string>
     <string name="direction_transferring">Transferring</string>
+    <string name="transfer_progress_percent">%1$d%% complete</string>
+    <string name="transfer_progress_files">%1$d/%2$d files</string>
+    <string name="transfer_progress_overall">Overall: %1$s / %2$s</string>
+    <string name="transfer_progress_current_file">Current file: %1$s / %2$s</string>
 
     <string name="pair_success">Pairing approved</string>
     <string name="pair_not_found">Pair request not found</string>

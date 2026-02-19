@@ -18,6 +18,7 @@ import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 import java.net.InetAddress
+import java.net.SocketTimeoutException
 import java.net.URLConnection
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
@@ -119,6 +120,18 @@ class MediaBusHttpServer(
                     handleUpload(session)
                 }
 
+                session.method == Method.DELETE && session.uri == "/api/files/delete" -> {
+                    handleDelete(session)
+                }
+
+                session.method == Method.POST && session.uri == "/api/files/mkdir" -> {
+                    handleCreateFolder(session)
+                }
+
+                session.method == Method.POST && session.uri == "/api/files/rename" -> {
+                    handleRename(session)
+                }
+
                 session.method == Method.GET && session.uri == "/api/qr" -> {
                     handleQrSvg(session)
                 }
@@ -156,7 +169,10 @@ class MediaBusHttpServer(
                     )
                     .put("host", advertisedHost)
                     .put("port", portNumber)
-                    .put("showHiddenFiles", runtime.showHiddenFiles()),
+                    .put("showHiddenFiles", runtime.showHiddenFiles())
+                    .put("allowUpload", runtime.uploadEnabled())
+                    .put("allowDownload", runtime.downloadEnabled())
+                    .put("allowDelete", runtime.deleteEnabled()),
             )
         }
 
@@ -263,6 +279,18 @@ class MediaBusHttpServer(
         val ip = session.remoteIpAddress.orEmpty()
         val auth = runtime.authenticateSession(cookie(session, sessionCookieName), ip, touch = true)
         if (auth !is HostRuntimeController.AuthResult.Valid) {
+            val revokeNotice = runtime.consumeRevocationNotice(cookie(session, sessionCookieName))
+            if (revokeNotice != null) {
+                ServerLogger.w(LOG_COMPONENT, "heartbeat revoked ip=$ip")
+                return newFixedLengthResponse(
+                    Response.Status.UNAUTHORIZED,
+                    "application/json; charset=utf-8",
+                    JSONObject()
+                        .put("status", "revoked")
+                        .put("error", revokeNotice)
+                        .toString(),
+                )
+            }
             ServerLogger.w(LOG_COMPONENT, "heartbeat unauthorized ip=$ip")
             return newFixedLengthResponse(Response.Status.UNAUTHORIZED, MIME_PLAINTEXT, "Unauthorized")
         }
@@ -311,6 +339,9 @@ class MediaBusHttpServer(
     }
 
     private fun handleDownloadFile(session: IHTTPSession): Response {
+        if (!runtime.downloadEnabled()) {
+            return newFixedLengthResponse(Response.Status.FORBIDDEN, MIME_PLAINTEXT, "Downloads are disabled")
+        }
         val auth = authenticatedDevice(session) ?: return unauthorized()
         val root = rootDocument() ?: return sharedFolderUnavailable()
 
@@ -349,6 +380,9 @@ class MediaBusHttpServer(
     }
 
     private fun handleDownloadZip(session: IHTTPSession): Response {
+        if (!runtime.downloadEnabled()) {
+            return newFixedLengthResponse(Response.Status.FORBIDDEN, MIME_PLAINTEXT, "Downloads are disabled")
+        }
         val auth = authenticatedDevice(session) ?: return unauthorized()
         val root = rootDocument() ?: return sharedFolderUnavailable()
 
@@ -396,6 +430,9 @@ class MediaBusHttpServer(
     }
 
     private fun handleUpload(session: IHTTPSession): Response {
+        if (!runtime.uploadEnabled()) {
+            return newFixedLengthResponse(Response.Status.FORBIDDEN, MIME_PLAINTEXT, "Uploads are disabled")
+        }
         val auth = authenticatedDevice(session) ?: return unauthorized()
         val root = rootDocument() ?: return sharedFolderUnavailable()
 
@@ -416,10 +453,14 @@ class MediaBusHttpServer(
             ?: return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Unable to create file")
 
         val totalBytes = session.headers["content-length"]?.toLongOrNull() ?: -1L
+        val batchId = session.headers["x-mediabus-batch-id"]?.takeIf { it.isNotBlank() }
+        val batchTotalFiles = session.headers["x-mediabus-batch-total"]?.toIntOrNull() ?: 0
         val ticket = runtime.beginTransfer(
             deviceId = auth.device.deviceId,
             direction = TransferDirection.Uploading,
             totalBytes = totalBytes,
+            batchId = batchId,
+            batchTotalFiles = batchTotalFiles,
         ) ?: return newFixedLengthResponse(Response.Status.FORBIDDEN, MIME_PLAINTEXT, "Transfer unavailable")
         ServerLogger.i(
             LOG_COMPONENT,
@@ -428,7 +469,12 @@ class MediaBusHttpServer(
 
         return runCatching {
             appContext.contentResolver.openOutputStream(outputFile.uri)?.use { output ->
-                copyInput(session.inputStream, output, ticket)
+                copyInput(
+                    input = session.inputStream,
+                    output = output,
+                    ticket = ticket,
+                    expectedTotalBytes = totalBytes,
+                )
             } ?: throw IOException("Unable to open destination")
 
             jsonResponse(
@@ -452,6 +498,129 @@ class MediaBusHttpServer(
             ServerLogger.i(LOG_COMPONENT, "upload finish deviceId=${auth.device.deviceId} name=$uniqueName")
             ticket.close()
         }
+    }
+
+    private fun handleDelete(session: IHTTPSession): Response {
+        if (!runtime.deleteEnabled()) {
+            return newFixedLengthResponse(Response.Status.FORBIDDEN, MIME_PLAINTEXT, "Deletes are disabled")
+        }
+        val auth = authenticatedDevice(session) ?: return unauthorized()
+        val root = rootDocument() ?: return sharedFolderUnavailable()
+
+        val segments = normalizePath(session.queryParam("path"))
+        if (segments.isEmpty()) {
+            return newFixedLengthResponse(Response.Status.BAD_REQUEST, MIME_PLAINTEXT, "Invalid file path")
+        }
+        if (!runtime.showHiddenFiles() && segments.any { it.startsWith('.') }) {
+            return newFixedLengthResponse(Response.Status.FORBIDDEN, MIME_PLAINTEXT, "Hidden paths are disabled")
+        }
+        val node = resolveNode(root, segments)
+            ?: return newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "File not found")
+        val deleted = node.delete()
+        if (!deleted) {
+            return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Unable to delete item")
+        }
+        ServerLogger.i(
+            LOG_COMPONENT,
+            "delete item success deviceId=${auth.device.deviceId} path=/${segments.joinToString("/")}",
+        )
+        return jsonResponse(
+            JSONObject()
+                .put("status", "ok")
+                .put("path", segments.joinToString("/")),
+        )
+    }
+
+    private fun handleCreateFolder(session: IHTTPSession): Response {
+        if (!runtime.uploadEnabled()) {
+            return newFixedLengthResponse(Response.Status.FORBIDDEN, MIME_PLAINTEXT, "Uploads are disabled")
+        }
+        val auth = authenticatedDevice(session) ?: return unauthorized()
+        val root = rootDocument() ?: return sharedFolderUnavailable()
+
+        val targetSegments = normalizePath(session.queryParam("path"))
+        if (!runtime.showHiddenFiles() && targetSegments.any { it.startsWith('.') }) {
+            return newFixedLengthResponse(Response.Status.FORBIDDEN, MIME_PLAINTEXT, "Hidden paths are disabled")
+        }
+        val rawName = session.queryParamOrNull("name").orEmpty()
+        val folderName = sanitizeSegment(rawName)
+            ?: return newFixedLengthResponse(Response.Status.BAD_REQUEST, MIME_PLAINTEXT, "Invalid folder name")
+        if (!runtime.showHiddenFiles() && folderName.startsWith('.')) {
+            return newFixedLengthResponse(Response.Status.FORBIDDEN, MIME_PLAINTEXT, "Hidden paths are disabled")
+        }
+        val parent = resolveDirectory(root, targetSegments, createIfMissing = false)
+            ?: return newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "Destination not found")
+        if (parent.findFile(folderName) != null) {
+            return newFixedLengthResponse(Response.Status.CONFLICT, MIME_PLAINTEXT, "Name already exists")
+        }
+        val created = parent.createDirectory(folderName)
+            ?: return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Unable to create folder")
+        val createdPath = (targetSegments + (created.name ?: folderName)).joinToString("/")
+        ServerLogger.i(
+            LOG_COMPONENT,
+            "mkdir success deviceId=${auth.device.deviceId} path=/$createdPath",
+        )
+        return jsonResponse(
+            JSONObject()
+                .put("status", "ok")
+                .put("path", createdPath),
+        )
+    }
+
+    private fun handleRename(session: IHTTPSession): Response {
+        if (!runtime.uploadEnabled()) {
+            return newFixedLengthResponse(Response.Status.FORBIDDEN, MIME_PLAINTEXT, "Uploads are disabled")
+        }
+        val auth = authenticatedDevice(session) ?: return unauthorized()
+        val root = rootDocument() ?: return sharedFolderUnavailable()
+
+        val segments = normalizePath(session.queryParam("path"))
+        if (segments.isEmpty()) {
+            return newFixedLengthResponse(Response.Status.BAD_REQUEST, MIME_PLAINTEXT, "Invalid item path")
+        }
+        if (!runtime.showHiddenFiles() && segments.any { it.startsWith('.') }) {
+            return newFixedLengthResponse(Response.Status.FORBIDDEN, MIME_PLAINTEXT, "Hidden paths are disabled")
+        }
+        val rawName = session.queryParamOrNull("name").orEmpty()
+        val targetName = sanitizeSegment(rawName)
+            ?: return newFixedLengthResponse(Response.Status.BAD_REQUEST, MIME_PLAINTEXT, "Invalid target name")
+        if (!runtime.showHiddenFiles() && targetName.startsWith('.')) {
+            return newFixedLengthResponse(Response.Status.FORBIDDEN, MIME_PLAINTEXT, "Hidden paths are disabled")
+        }
+
+        val parentSegments = segments.dropLast(1)
+        val oldName = segments.last()
+        val parent = resolveDirectory(root, parentSegments, createIfMissing = false)
+            ?: return newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "Parent not found")
+        val node = parent.findFile(oldName)
+            ?: return newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "Item not found")
+
+        if (oldName == targetName) {
+            return jsonResponse(
+                JSONObject()
+                    .put("status", "ok")
+                    .put("path", segments.joinToString("/"))
+                    .put("renamed", false),
+            )
+        }
+        if (parent.findFile(targetName) != null) {
+            return newFixedLengthResponse(Response.Status.CONFLICT, MIME_PLAINTEXT, "Name already exists")
+        }
+        val renamed = node.renameTo(targetName)
+        if (!renamed) {
+            return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Unable to rename item")
+        }
+        val renamedPath = (parentSegments + targetName).joinToString("/")
+        ServerLogger.i(
+            LOG_COMPONENT,
+            "rename success deviceId=${auth.device.deviceId} from=/${segments.joinToString("/")} to=/$renamedPath",
+        )
+        return jsonResponse(
+            JSONObject()
+                .put("status", "ok")
+                .put("path", renamedPath)
+                .put("renamed", true),
+        )
     }
 
     private fun handleQrSvg(session: IHTTPSession): Response {
@@ -478,16 +647,30 @@ class MediaBusHttpServer(
         input: InputStream,
         output: OutputStream,
         ticket: HostRuntimeController.TransferTicket,
+        expectedTotalBytes: Long,
     ) {
         val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        var receivedBytes = 0L
         while (true) {
             if (ticket.cancelled()) {
                 throw IOException("cancelled")
             }
-            val read = input.read(buffer)
+            val read = try {
+                input.read(buffer)
+            } catch (timeout: SocketTimeoutException) {
+                if (expectedTotalBytes > 0 && receivedBytes >= expectedTotalBytes) {
+                    break
+                }
+                throw timeout
+            }
             if (read <= 0) break
             output.write(buffer, 0, read)
+            receivedBytes += read
             ticket.addProgress(read.toLong())
+            if (expectedTotalBytes > 0 && receivedBytes >= expectedTotalBytes) {
+                // Request body fully consumed; do not wait for socket timeout/EOF.
+                break
+            }
         }
         output.flush()
     }
