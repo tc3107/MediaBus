@@ -1,0 +1,332 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MediaBus</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #090b11;
+      --surface: #121723;
+      --surface-2: #1a2334;
+      --line: #2a3650;
+      --text: #eef3ff;
+      --muted: #9aaccc;
+      --accent: #63b4ff;
+      --danger: #ff7a82;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+      background: radial-gradient(circle at right top, #1b2840, var(--bg) 48%);
+      color: var(--text);
+    }
+    .app {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 18px 14px 32px;
+    }
+    .card {
+      background: linear-gradient(165deg, var(--surface), var(--surface-2));
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 16px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, .3);
+    }
+    h1 { margin: 0 0 8px; font-size: 26px; }
+    h2 { margin: 0 0 8px; font-size: 20px; }
+    p, .muted { color: var(--muted); }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+    button, .button {
+      background: #283854;
+      border: 1px solid #46597f;
+      color: var(--text);
+      border-radius: 10px;
+      padding: 10px 14px;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-block;
+    }
+    button:hover, .button:hover { filter: brightness(1.08); }
+    .danger { border-color: #7b3f4a; background: #422227; }
+    .code {
+      font-size: 34px;
+      letter-spacing: .14em;
+      font-weight: 700;
+      margin: 6px 0;
+    }
+    .grid {
+      display: grid;
+      gap: 14px;
+    }
+    .pair-grid {
+      display: grid;
+      gap: 16px;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      align-items: center;
+    }
+    .qr {
+      width: 220px;
+      height: 220px;
+      background: #fff;
+      border-radius: 14px;
+      padding: 10px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+    td {
+      border-bottom: 1px solid var(--line);
+      padding: 10px 8px;
+    }
+    td.size { color: var(--muted); text-align: right; }
+    a.link {
+      color: var(--accent);
+      text-decoration: none;
+    }
+    a.link:hover { text-decoration: underline; }
+    .path {
+      font-weight: 600;
+      margin-bottom: 10px;
+    }
+    #log { min-height: 18px; color: #9dd0ff; font-size: 13px; }
+    @media (max-width: 680px) {
+      .code { font-size: 30px; }
+      .qr { width: 190px; height: 190px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <section class="card">
+      <h1>MediaBus</h1>
+      <div id="content" class="grid"></div>
+    </section>
+  </main>
+
+  <script>
+    const content = document.getElementById("content");
+    let pairPoll = null;
+    let heartbeat = null;
+    let currentPath = "";
+
+    async function api(path, options = {}) {
+      const response = await fetch(path, {
+        credentials: "include",
+        ...options
+      });
+      const text = await response.text();
+      let data = null;
+      try { data = text ? JSON.parse(text) : null; } catch (_) {}
+      if (!response.ok) {
+        const message = (data && data.error) || text || ("HTTP " + response.status);
+        throw new Error(message);
+      }
+      return data;
+    }
+
+    function clearTimers() {
+      if (pairPoll) clearInterval(pairPoll);
+      if (heartbeat) clearInterval(heartbeat);
+      pairPoll = null;
+      heartbeat = null;
+    }
+
+    function renderMessage(msg) {
+      return '<p class="muted">' + msg + '</p>';
+    }
+
+    function dirname(path) {
+      const parts = path.split("/").filter(Boolean);
+      parts.pop();
+      return parts.join("/");
+    }
+
+    function escapeHtml(text) {
+      return text
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;");
+    }
+
+    function formatBytes(bytes) {
+      if (bytes < 1024) return bytes + " B";
+      const kb = bytes / 1024;
+      if (kb < 1024) return kb.toFixed(1) + " KB";
+      const mb = kb / 1024;
+      if (mb < 1024) return mb.toFixed(1) + " MB";
+      return (mb / 1024).toFixed(2) + " GB";
+    }
+
+    async function bootstrap() {
+      clearTimers();
+      const data = await api("/api/bootstrap");
+      if (data.paired) {
+        renderPaired();
+      } else {
+        renderUnpaired(data);
+      }
+    }
+
+    function renderUnpaired(data) {
+      const quickButton = data.quickPairAvailable
+        ? '<button id="quickPairButton">Quick Reconnect</button>'
+        : '';
+
+      content.innerHTML = `
+        <div class="pair-grid">
+          <div>
+            <h2>Pair This Browser</h2>
+            ${renderMessage("Scan this QR in the host app or type this code on host.")}
+            <div class="code">${data.pairCode}</div>
+            ${quickButton}
+          </div>
+          <div>
+            <img class="qr" alt="Pairing QR" src="/api/qr?value=${encodeURIComponent(data.pairQrPayload)}" />
+          </div>
+        </div>
+      `;
+
+      const quickButtonNode = document.getElementById("quickPairButton");
+      if (quickButtonNode) {
+        quickButtonNode.addEventListener("click", async () => {
+          try {
+            await api("/api/pair/quick", { method: "POST" });
+            await bootstrap();
+          } catch (err) {
+            alert(err.message || "Quick pair failed");
+          }
+        });
+      }
+
+      pairPoll = setInterval(async () => {
+        try {
+          const status = await api("/api/pair/status?token=" + encodeURIComponent(data.pairToken));
+          if (status.status === "approved" || status.status === "not_found") {
+            await bootstrap();
+          }
+        } catch (_) {
+        }
+      }, 2000);
+    }
+
+    function renderPaired() {
+      content.innerHTML = `
+        <div class="toolbar">
+          <button id="upButton">Up</button>
+          <input id="filePicker" type="file" multiple />
+          <input id="folderPicker" type="file" webkitdirectory directory multiple />
+          <button id="disconnectButton" class="danger">Disconnect</button>
+        </div>
+        <div class="path">Path: <span id="currentPath">/</span></div>
+        <div id="log"></div>
+        <table>
+          <tbody id="fileRows"></tbody>
+        </table>
+      `;
+
+      document.getElementById("upButton").addEventListener("click", async () => {
+        const parent = dirname(currentPath);
+        await loadPath(parent);
+      });
+
+      document.getElementById("disconnectButton").addEventListener("click", async () => {
+        await api("/api/session/disconnect", { method: "POST" });
+        await bootstrap();
+      });
+
+      const filePicker = document.getElementById("filePicker");
+      filePicker.addEventListener("change", async () => {
+        await uploadFiles(filePicker.files, false);
+      });
+
+      const folderPicker = document.getElementById("folderPicker");
+      folderPicker.addEventListener("change", async () => {
+        await uploadFiles(folderPicker.files, true);
+      });
+
+      heartbeat = setInterval(() => {
+        api("/api/heartbeat", { method: "POST" }).catch(() => {});
+      }, 10000);
+
+      loadPath("").catch(err => {
+        const log = document.getElementById("log");
+        log.textContent = err.message || "Unable to load files";
+      });
+    }
+
+    async function loadPath(path) {
+      const data = await api("/api/files/list?path=" + encodeURIComponent(path || ""));
+      currentPath = data.path || "";
+      document.getElementById("currentPath").textContent = "/" + currentPath;
+      const rows = document.getElementById("fileRows");
+      const log = document.getElementById("log");
+      log.textContent = "";
+
+      rows.innerHTML = data.items.map(item => {
+        if (item.directory) {
+          return `
+            <tr>
+              <td><a class="link" href="#" data-open="${encodeURIComponent(item.path)}">📁 ${escapeHtml(item.name)}</a></td>
+              <td class="size"><a class="button" href="/api/files/download-zip?path=${encodeURIComponent(item.path)}">Download ZIP</a></td>
+            </tr>
+          `;
+        }
+        return `
+          <tr>
+            <td>${escapeHtml(item.name)}</td>
+            <td class="size">
+              ${formatBytes(item.size)}
+              <a class="button" href="/api/files/download?path=${encodeURIComponent(item.path)}">Download</a>
+            </td>
+          </tr>
+        `;
+      }).join("");
+
+      rows.querySelectorAll("a[data-open]").forEach(anchor => {
+        anchor.addEventListener("click", async (event) => {
+          event.preventDefault();
+          const nextPath = decodeURIComponent(anchor.getAttribute("data-open"));
+          await loadPath(nextPath);
+        });
+      });
+    }
+
+    async function uploadFiles(fileList, folderUpload) {
+      if (!fileList || !fileList.length) return;
+      const log = document.getElementById("log");
+      for (const file of fileList) {
+        const relativeFolder = folderUpload && file.webkitRelativePath
+          ? dirname(file.webkitRelativePath)
+          : "";
+        const mergedPath = [currentPath, relativeFolder].filter(Boolean).join("/");
+        log.textContent = "Uploading " + (file.webkitRelativePath || file.name);
+        const url = "/api/files/upload?path=" + encodeURIComponent(mergedPath) +
+          "&name=" + encodeURIComponent(file.name);
+        const response = await fetch(url, {
+          method: "PUT",
+          credentials: "include",
+          headers: { "Content-Type": "application/octet-stream", "X-File-Name": file.name },
+          body: file,
+        });
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(text || "Upload failed");
+        }
+      }
+      log.textContent = "Upload complete";
+      await loadPath(currentPath);
+    }
+
+    bootstrap().catch(err => {
+      content.innerHTML = '<p>' + escapeHtml(err.message || "Failed to load") + '</p>';
+    });
+  </script>
+</body>
+</html>
