@@ -66,6 +66,14 @@ class MediaBusHttpServer(
                     htmlResponse(clientShellHtml())
                 }
 
+                session.method == Method.GET && (
+                    session.uri == "/index.html" ||
+                        session.uri.startsWith("/assets/")
+                    ) -> {
+                    serveWebAsset(session.uri)
+                        ?: newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "Not found")
+                }
+
                 session.method == Method.GET && session.uri == "/health" -> {
                     jsonResponse(
                         JSONObject()
@@ -629,6 +637,34 @@ class MediaBusHttpServer(
         return newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", html)
     }
 
+    private fun serveWebAsset(uri: String): Response? {
+        val cleanUri = uri.substringBefore('?')
+        val relativePath = cleanUri.trimStart('/')
+        if (relativePath.isBlank() || relativePath.contains("..")) {
+            return null
+        }
+
+        val assetPath = "web/$relativePath"
+        val bytes = runCatching {
+            appContext.assets.open(assetPath).use { stream -> stream.readBytes() }
+        }.getOrNull() ?: return null
+
+        val mimeType = URLConnection.guessContentTypeFromName(relativePath) ?: when {
+            relativePath.endsWith(".js") -> "application/javascript; charset=utf-8"
+            relativePath.endsWith(".css") -> "text/css; charset=utf-8"
+            relativePath.endsWith(".svg") -> "image/svg+xml"
+            relativePath.endsWith(".json") -> "application/json; charset=utf-8"
+            relativePath.endsWith(".map") -> "application/json; charset=utf-8"
+            else -> "application/octet-stream"
+        }
+        return newFixedLengthResponse(
+            Response.Status.OK,
+            mimeType,
+            bytes.inputStream(),
+            bytes.size.toLong(),
+        )
+    }
+
     private fun cookie(session: IHTTPSession, name: String): String? {
         val cookieHeader = session.headers["cookie"] ?: return null
         return cookieHeader.split(';')
@@ -693,7 +729,11 @@ class MediaBusHttpServer(
     }
 
     private fun clientShellHtml(): String {
-        return appContext.assets.open("client.html").bufferedReader().use { it.readText() }
+        return runCatching {
+            appContext.assets.open("web/index.html").bufferedReader().use { it.readText() }
+        }.getOrElse {
+            appContext.assets.open("client.html").bufferedReader().use { it.readText() }
+        }
     }
 
     private companion object {

@@ -4,6 +4,9 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+val webClientDir = rootProject.file("web-client")
+val webNodeModulesDir = webClientDir.resolve("node_modules")
+
 android {
     namespace = "com.tudorc.mediabus"
     compileSdk {
@@ -73,4 +76,20 @@ dependencies {
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+}
+
+val installWebClientDeps by tasks.registering(Exec::class) {
+    workingDir(webClientDir)
+    commandLine("npm", "install", "--no-audit", "--no-fund")
+    onlyIf { !webNodeModulesDir.exists() }
+}
+
+val buildWebClient by tasks.registering(Exec::class) {
+    dependsOn(installWebClientDeps)
+    workingDir(webClientDir)
+    commandLine("npm", "run", "build")
+}
+
+tasks.named("preBuild") {
+    dependsOn(buildWebClient)
 }

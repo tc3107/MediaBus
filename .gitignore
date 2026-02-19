@@ -13,3 +13,5 @@
 .externalNativeBuild
 .cxx
 local.properties
+web-client/node_modules/
+web-client/.vite/
