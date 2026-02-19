@@ -38,6 +38,7 @@ body {
 
 .topbar {
   margin-bottom: 16px;
+  text-align: center;
 }
 
 .topbar h1 {
@@ -144,7 +145,23 @@ body {
 .breadcrumbs {
   display: flex;
   flex-wrap: wrap;
-  gap: 2px;
+  align-items: center;
+  gap: 4px;
+}
+
+.crumb-up {
+  border: 1px solid var(--line);
+  background: rgba(35, 49, 77, 0.72);
+  color: var(--text);
+  border-radius: 8px;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font: inherit;
+  line-height: 1;
 }
 
 .crumb {
@@ -183,12 +200,20 @@ body {
 
 .toolbar {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 10px;
 }
 
 .modern-toolbar {
   margin-bottom: 12px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 2px;
+}
+
+.modern-toolbar .btn,
+.modern-toolbar .file-btn {
+  flex: 0 0 auto;
 }
 
 .btn {
@@ -202,6 +227,26 @@ body {
   text-decoration: none;
   cursor: pointer;
   transition: filter 120ms ease, transform 120ms ease;
+}
+
+.icon-btn {
+  width: 40px;
+  min-width: 40px;
+  padding: 8px 0;
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.btn.slim.icon-btn {
+  width: 34px;
+  min-width: 34px;
+  padding: 6px 0;
+}
+
+.icon-symbol {
+  font-size: 15px;
+  line-height: 1;
 }
 
 .btn:hover {
@@ -350,11 +395,14 @@ body {
 .modern-table-wrap {
   border: 1px solid var(--line);
   border-radius: 14px;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
 }
 
 .modern-table {
   width: 100%;
+  min-width: 620px;
   border-collapse: collapse;
 }
 
@@ -426,11 +474,26 @@ body {
   text-align: right;
 }
 
-.size-cell {
+.size-cell { white-space: nowrap; }
+
+.actions-col,
+.actions-cell {
+  text-align: right;
+}
+
+.actions-cell {
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.actions-row {
   display: flex;
   justify-content: flex-end;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  min-height: 100%;
+  white-space: nowrap;
+  flex-wrap: nowrap;
 }
 
 .size-value {
@@ -467,12 +530,13 @@ body {
   }
 
   .size-col,
-  .size-cell {
+  .size-cell,
+  .actions-col,
+  .actions-cell {
     text-align: left;
   }
 
-  .size-cell {
+  .actions-row {
     justify-content: flex-start;
-    flex-wrap: wrap;
   }
 }

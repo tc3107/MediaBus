@@ -19,7 +19,6 @@ okhttp = "4.12.0"
 jmdns = "3.6.0"
 zxing = "3.5.3"
 cameraX = "1.4.2"
-mlkitBarcode = "17.3.0"
 slf4j = "2.0.16"
 
 [libraries]
@@ -51,7 +50,6 @@ androidx-camera-core = { group = "androidx.camera", name = "camera-core", versio
 androidx-camera-camera2 = { group = "androidx.camera", name = "camera-camera2", version.ref = "cameraX" }
 androidx-camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "cameraX" }
 androidx-camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "cameraX" }
-mlkit-barcode-scanning = { group = "com.google.mlkit", name = "barcode-scanning", version.ref = "mlkitBarcode" }
 slf4j-nop = { group = "org.slf4j", name = "slf4j-nop", version.ref = "slf4j" }
 
 [plugins]

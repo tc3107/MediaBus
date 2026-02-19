@@ -149,6 +149,9 @@ function DriveView({
       <div className="drive-main glass-card">
         <header className="drive-header">
           <div className="breadcrumbs">
+            <button className="crumb-up" title="Up" aria-label="Up" onClick={onUp}>
+              ↑
+            </button>
             {crumbs.map((crumb, index) => (
               <button key={crumb.path || 'root'} className="crumb" onClick={() => onLoadPath(crumb.path)}>
                 {crumb.label}
@@ -162,9 +165,13 @@ function DriveView({
         </header>
 
         <div className="toolbar modern-toolbar">
-          <button className="btn" disabled={busy} onClick={onUp}>Up</button>
-          <label className="btn btn-primary file-btn" aria-disabled={!permissions.allowUpload}>
-            Upload Files
+          <label
+            className="btn btn-primary file-btn icon-btn"
+            aria-disabled={!permissions.allowUpload}
+            title="Upload files"
+            aria-label="Upload files"
+          >
+            <span className="icon-symbol">↑📄</span>
             <input
               type="file"
               multiple
@@ -175,8 +182,13 @@ function DriveView({
               }}
             />
           </label>
-          <label className="btn btn-primary file-btn" aria-disabled={!permissions.allowUpload}>
-            Upload Folder
+          <label
+            className="btn btn-primary file-btn icon-btn"
+            aria-disabled={!permissions.allowUpload}
+            title="Upload folder"
+            aria-label="Upload folder"
+          >
+            <span className="icon-symbol">↑📁</span>
             <input
               type="file"
               webkitdirectory=""
@@ -189,8 +201,14 @@ function DriveView({
               }}
             />
           </label>
-          <button className="btn" disabled={busy || !permissions.allowUpload} onClick={onCreateFolder}>
-            New Folder
+          <button
+            className="btn icon-btn"
+            title="New folder"
+            aria-label="New folder"
+            disabled={busy || !permissions.allowUpload}
+            onClick={onCreateFolder}
+          >
+            <span className="icon-symbol">+📁</span>
           </button>
         </div>
 
@@ -203,8 +221,8 @@ function DriveView({
                 {transfer.active ? `${Math.round(transfer.progress * 100)}%` : ''}
               </span>
               {transfer.active && (
-                <button className="btn slim btn-danger" onClick={onCancelUpload}>
-                  Cancel
+                <button className="btn slim btn-danger icon-btn" title="Cancel upload" aria-label="Cancel upload" onClick={onCancelUpload}>
+                  <span className="icon-symbol">✕</span>
                 </button>
               )}
             </div>
@@ -229,7 +247,8 @@ function DriveView({
               <tr>
                 <th>Name</th>
                 <th>Modified</th>
-                <th className="size-col">Size / Action</th>
+                <th className="size-col">Size</th>
+                <th className="actions-col">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -244,29 +263,40 @@ function DriveView({
                     </td>
                     <td className="muted-cell">{formatTime(item.lastModified)}</td>
                     <td className="size-cell">
-                      <a
-                        className={`btn slim ${busy || !permissions.allowDownload ? 'disabled-link' : ''}`}
-                        href={!busy && permissions.allowDownload ? `/api/files/download-zip?path=${encodeURIComponent(item.path)}` : undefined}
-                        onClick={(event) => {
-                          if (busy || !permissions.allowDownload) event.preventDefault()
-                        }}
-                      >
-                        Download
-                      </a>
-                      <button
-                        className="btn slim"
-                        disabled={busy || !permissions.allowUpload}
-                        onClick={() => onRenameItem(item)}
-                      >
-                        Rename
-                      </button>
-                      <button
-                        className="btn slim btn-danger"
-                        disabled={busy || !permissions.allowDelete}
-                        onClick={() => onDeleteItem(item)}
-                      >
-                        Delete
-                      </button>
+                      <span className="size-value">-</span>
+                    </td>
+                    <td className="actions-cell">
+                      <div className="actions-row">
+                        <a
+                          className={`btn slim icon-btn ${busy || !permissions.allowDownload ? 'disabled-link' : ''}`}
+                          href={!busy && permissions.allowDownload ? `/api/files/download-zip?path=${encodeURIComponent(item.path)}` : undefined}
+                          title="Download folder"
+                          aria-label="Download folder"
+                          onClick={(event) => {
+                            if (busy || !permissions.allowDownload) event.preventDefault()
+                          }}
+                        >
+                          <span className="icon-symbol">⬇</span>
+                        </a>
+                        <button
+                          className="btn slim icon-btn"
+                          title="Rename"
+                          aria-label="Rename"
+                          disabled={busy || !permissions.allowUpload}
+                          onClick={() => onRenameItem(item)}
+                        >
+                          <span className="icon-symbol">✎</span>
+                        </button>
+                        <button
+                          className="btn slim btn-danger icon-btn"
+                          title="Delete"
+                          aria-label="Delete"
+                          disabled={busy || !permissions.allowDelete}
+                          onClick={() => onDeleteItem(item)}
+                        >
+                          <span className="icon-symbol">🗑</span>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ) : (
@@ -280,29 +310,39 @@ function DriveView({
                     <td className="muted-cell">{formatTime(item.lastModified)}</td>
                     <td className="size-cell">
                       <span className="size-value">{formatBytes(item.size)}</span>
-                      <a
-                        className={`btn slim ${busy || !permissions.allowDownload ? 'disabled-link' : ''}`}
-                        href={!busy && permissions.allowDownload ? `/api/files/download?path=${encodeURIComponent(item.path)}` : undefined}
-                        onClick={(event) => {
-                          if (busy || !permissions.allowDownload) event.preventDefault()
-                        }}
-                      >
-                        Download
-                      </a>
-                      <button
-                        className="btn slim"
-                        disabled={busy || !permissions.allowUpload}
-                        onClick={() => onRenameItem(item)}
-                      >
-                        Rename
-                      </button>
-                      <button
-                        className="btn slim btn-danger"
-                        disabled={busy || !permissions.allowDelete}
-                        onClick={() => onDeleteItem(item)}
-                      >
-                        Delete
-                      </button>
+                    </td>
+                    <td className="actions-cell">
+                      <div className="actions-row">
+                        <a
+                          className={`btn slim icon-btn ${busy || !permissions.allowDownload ? 'disabled-link' : ''}`}
+                          href={!busy && permissions.allowDownload ? `/api/files/download?path=${encodeURIComponent(item.path)}` : undefined}
+                          title="Download file"
+                          aria-label="Download file"
+                          onClick={(event) => {
+                            if (busy || !permissions.allowDownload) event.preventDefault()
+                          }}
+                        >
+                          <span className="icon-symbol">⬇</span>
+                        </a>
+                        <button
+                          className="btn slim icon-btn"
+                          title="Rename"
+                          aria-label="Rename"
+                          disabled={busy || !permissions.allowUpload}
+                          onClick={() => onRenameItem(item)}
+                        >
+                          <span className="icon-symbol">✎</span>
+                        </button>
+                        <button
+                          className="btn slim btn-danger icon-btn"
+                          title="Delete"
+                          aria-label="Delete"
+                          disabled={busy || !permissions.allowDelete}
+                          onClick={() => onDeleteItem(item)}
+                        >
+                          <span className="icon-symbol">🗑</span>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 )
@@ -340,6 +380,7 @@ export default function App() {
   const refreshInFlightRef = useRef(false)
   const currentPathRef = useRef('')
   const busyRef = useRef(false)
+  const loadRequestSeqRef = useRef(0)
   const activeUploadXhrRef = useRef(null)
   const cancelUploadRef = useRef(false)
 
@@ -367,12 +408,17 @@ export default function App() {
 
   async function loadPath(nextPath, options = {}) {
     const { silent = false } = options
+    const requestedPath = nextPath || ''
+    const requestSeq = ++loadRequestSeqRef.current
     try {
-      const data = await api(`/api/files/list?path=${encodeURIComponent(nextPath || '')}`)
+      const data = await api(`/api/files/list?path=${encodeURIComponent(requestedPath)}`)
+      if (requestSeq !== loadRequestSeqRef.current) return
       setPath(data.path || '')
+      currentPathRef.current = data.path || requestedPath
       setItems(data.items || [])
       if (!silent) setLog('')
     } catch (err) {
+      if (requestSeq !== loadRequestSeqRef.current) return
       if (!silent) setError(friendlyErrorMessage(err.message || 'Failed to load files'))
     }
   }

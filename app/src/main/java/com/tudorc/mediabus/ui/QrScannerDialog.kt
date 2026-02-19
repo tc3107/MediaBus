@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import androidx.activity.compose.BackHandler
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
@@ -27,10 +28,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
-import com.google.mlkit.vision.barcode.BarcodeScanning
-import com.google.mlkit.vision.barcode.common.Barcode
-import com.google.mlkit.vision.common.InputImage
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.BinaryBitmap
+import com.google.zxing.DecodeHintType
+import com.google.zxing.MultiFormatReader
+import com.google.zxing.NotFoundException
+import com.google.zxing.PlanarYUVLuminanceSource
+import com.google.zxing.common.HybridBinarizer
 import com.tudorc.mediabus.util.MediaBusHaptics
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
@@ -54,7 +59,14 @@ fun QrScannerDialog(
     val setupError = remember { mutableStateOf<String?>(null) }
 
     DisposableEffect(Unit) {
-        val scanner = BarcodeScanning.getClient()
+        val reader = MultiFormatReader().apply {
+            setHints(
+                mapOf(
+                    DecodeHintType.POSSIBLE_FORMATS to listOf(BarcodeFormat.QR_CODE),
+                    DecodeHintType.TRY_HARDER to true,
+                ),
+            )
+        }
         val providerFuture = ProcessCameraProvider.getInstance(context)
 
         val setupRunnable = Runnable {
@@ -68,27 +80,40 @@ fun QrScannerDialog(
                     .build()
 
                 analysis.setAnalyzer(cameraExecutor) { imageProxy ->
-                    val mediaImage = imageProxy.image
-                    if (mediaImage == null) {
+                    if (scanned.get()) {
                         imageProxy.close()
                         return@setAnalyzer
                     }
-
-                    val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
-                    scanner.process(image)
-                        .addOnSuccessListener { barcodes ->
-                            if (scanned.get()) return@addOnSuccessListener
-                            val value = barcodes
-                                .firstOrNull { it.format == Barcode.FORMAT_QR_CODE }
-                                ?.rawValue
-                            if (!value.isNullOrBlank() && scanned.compareAndSet(false, true)) {
+                    try {
+                        val lumaBytes = extractLumaPlane(imageProxy)
+                        val source = PlanarYUVLuminanceSource(
+                            lumaBytes,
+                            imageProxy.width,
+                            imageProxy.height,
+                            0,
+                            0,
+                            imageProxy.width,
+                            imageProxy.height,
+                            false,
+                        )
+                        val binaryBitmap = BinaryBitmap(HybridBinarizer(source))
+                        val result = runCatching { reader.decodeWithState(binaryBitmap) }
+                            .getOrNull()
+                        reader.reset()
+                        val value = result?.text
+                        if (!value.isNullOrBlank() && scanned.compareAndSet(false, true)) {
+                            ContextCompat.getMainExecutor(context).execute {
                                 MediaBusHaptics.performRelease(context)
                                 onPayloadScanned(value)
                             }
                         }
-                        .addOnCompleteListener {
-                            imageProxy.close()
-                        }
+                    } catch (_: NotFoundException) {
+                        // No QR in this frame.
+                    } catch (_: Throwable) {
+                        // Ignore transient decode failures.
+                    } finally {
+                        imageProxy.close()
+                    }
                 }
 
                 provider.unbindAll()
@@ -107,7 +132,7 @@ fun QrScannerDialog(
 
         onDispose {
             runCatching { providerFuture.get().unbindAll() }
-            runCatching { scanner.close() }
+            runCatching { reader.reset() }
             cameraExecutor.shutdown()
         }
     }
@@ -152,4 +177,34 @@ fun QrScannerDialog(
             Text("Cancel")
         }
     }
+}
+
+private fun extractLumaPlane(imageProxy: ImageProxy): ByteArray {
+    val plane = imageProxy.planes.first()
+    val width = imageProxy.width
+    val height = imageProxy.height
+    val rowStride = plane.rowStride
+    val pixelStride = plane.pixelStride
+    val source = plane.buffer
+    val luma = ByteArray(width * height)
+
+    if (pixelStride == 1 && rowStride == width) {
+        source.rewind()
+        source.get(luma, 0, luma.size)
+        return luma
+    }
+
+    val rowBuffer = ByteArray(rowStride)
+    for (row in 0 until height) {
+        val rowOffset = row * rowStride
+        source.position(rowOffset)
+        source.get(rowBuffer, 0, rowStride)
+        val outOffset = row * width
+        var colIn = 0
+        for (col in 0 until width) {
+            luma[outOffset + col] = rowBuffer[colIn]
+            colIn += pixelStride
+        }
+    }
+    return luma
 }
