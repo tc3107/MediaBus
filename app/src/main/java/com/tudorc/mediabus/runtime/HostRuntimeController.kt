@@ -44,6 +44,11 @@ class HostRuntimeController(
     private var currentUploadBatchCompletedFiles = 0
     private var currentUploadBatchActiveFiles = 0
     private var currentUploadBatchTotalBytes = 0L
+    private var currentDownloadBatchId: String? = null
+    private var currentDownloadBatchTotalFiles = 0
+    private var currentDownloadBatchCompletedFiles = 0
+    private var currentDownloadBatchActiveFiles = 0
+    private var currentDownloadBatchTotalBytes = 0L
 
     @Volatile
     private var showHiddenFiles = false
@@ -297,12 +302,19 @@ class HostRuntimeController(
         batchId: String? = null,
         batchTotalFiles: Int = 0,
         batchTotalBytes: Long = 0L,
+        batchCompletedFiles: Int = 0,
     ): TransferTicket? {
         val runtime: DeviceRuntime
         val transfer: TransferInfo
         val normalizedBatchId = batchId?.takeIf { it.isNotBlank() }
         synchronized(lock) {
-            if (transferById.isEmpty() && (normalizedBatchId == null || normalizedBatchId != currentUploadBatchId)) {
+            if (
+                transferById.isEmpty() &&
+                (
+                    normalizedBatchId == null ||
+                        (normalizedBatchId != currentUploadBatchId && normalizedBatchId != currentDownloadBatchId)
+                    )
+            ) {
                 overallProcessTotalBytes = 0L
                 overallProcessTransferredBytes = 0L
             }
@@ -331,6 +343,32 @@ class HostRuntimeController(
                 currentUploadBatchCompletedFiles = 0
                 currentUploadBatchActiveFiles = 0
                 currentUploadBatchTotalBytes = 0L
+            } else if (direction == TransferDirection.Downloading && normalizedBatchId != null && batchTotalFiles > 0) {
+                if (currentDownloadBatchId != normalizedBatchId) {
+                    currentDownloadBatchId = normalizedBatchId
+                    currentDownloadBatchTotalFiles = batchTotalFiles
+                    currentDownloadBatchCompletedFiles = batchCompletedFiles.coerceIn(0, max(1, batchTotalFiles))
+                    currentDownloadBatchActiveFiles = 0
+                    currentDownloadBatchTotalBytes = max(0L, batchTotalBytes)
+                    overallProcessTotalBytes = max(0L, batchTotalBytes)
+                    overallProcessTransferredBytes = 0L
+                } else {
+                    currentDownloadBatchTotalFiles = max(currentDownloadBatchTotalFiles, batchTotalFiles)
+                    currentDownloadBatchCompletedFiles = max(
+                        currentDownloadBatchCompletedFiles,
+                        batchCompletedFiles.coerceIn(0, max(1, currentDownloadBatchTotalFiles)),
+                    )
+                    if (batchTotalBytes > 0L) {
+                        currentDownloadBatchTotalBytes = max(currentDownloadBatchTotalBytes, batchTotalBytes)
+                        overallProcessTotalBytes = max(overallProcessTotalBytes, batchTotalBytes)
+                    }
+                }
+            } else if (direction == TransferDirection.Downloading && normalizedBatchId == null && transferById.isEmpty()) {
+                currentDownloadBatchId = null
+                currentDownloadBatchTotalFiles = 0
+                currentDownloadBatchCompletedFiles = 0
+                currentDownloadBatchActiveFiles = 0
+                currentDownloadBatchTotalBytes = 0L
             }
             runtime = deviceRuntime.getOrPut(deviceId) { DeviceRuntime() }
             runtime.queuedTransfers++
@@ -347,7 +385,10 @@ class HostRuntimeController(
             val usingBatchTotalBytes = currentUploadBatchId != null &&
                 normalizedBatchId == currentUploadBatchId &&
                 currentUploadBatchTotalBytes > 0L
-            if (totalBytes > 0L && !usingBatchTotalBytes) {
+            val usingDownloadBatchTotalBytes = currentDownloadBatchId != null &&
+                normalizedBatchId == currentDownloadBatchId &&
+                currentDownloadBatchTotalBytes > 0L
+            if (totalBytes > 0L && !usingBatchTotalBytes && !usingDownloadBatchTotalBytes) {
                 overallProcessTotalBytes += totalBytes
             }
             transferById[transfer.id] = transfer
@@ -382,6 +423,12 @@ class HostRuntimeController(
                 currentTransfer.batchId == currentUploadBatchId
             ) {
                 currentUploadBatchActiveFiles++
+            } else if (
+                currentTransfer.direction == TransferDirection.Downloading &&
+                currentTransfer.batchId != null &&
+                currentTransfer.batchId == currentDownloadBatchId
+            ) {
+                currentDownloadBatchActiveFiles++
             }
             publishLocked()
             ServerLogger.i(
@@ -424,13 +471,26 @@ class HostRuntimeController(
                         currentUploadBatchActiveFiles = max(0, currentUploadBatchActiveFiles - 1)
                         currentUploadBatchCompletedFiles = (currentUploadBatchCompletedFiles + 1)
                             .coerceAtMost(max(1, currentUploadBatchTotalFiles))
+                    } else if (
+                        currentTransfer != null &&
+                        currentTransfer.direction == TransferDirection.Downloading &&
+                        currentTransfer.batchId != null &&
+                        currentTransfer.batchId == currentDownloadBatchId &&
+                        currentTransfer.active
+                    ) {
+                        currentDownloadBatchActiveFiles = max(0, currentDownloadBatchActiveFiles - 1)
+                        currentDownloadBatchCompletedFiles = (currentDownloadBatchCompletedFiles + 1)
+                            .coerceAtMost(max(1, currentDownloadBatchTotalFiles))
                     }
                     publishLocked()
                     if (transferById.isEmpty()) {
-                        val batchDone = currentUploadBatchId != null &&
+                        val uploadBatchDone = currentUploadBatchId != null &&
                             currentUploadBatchTotalFiles > 0 &&
                             currentUploadBatchCompletedFiles >= currentUploadBatchTotalFiles
-                        if (batchDone || currentUploadBatchId == null) {
+                        val downloadBatchDone = currentDownloadBatchId != null &&
+                            currentDownloadBatchTotalFiles > 0 &&
+                            currentDownloadBatchCompletedFiles >= currentDownloadBatchTotalFiles
+                        if ((uploadBatchDone || currentUploadBatchId == null) && (downloadBatchDone || currentDownloadBatchId == null)) {
                             overallProcessTotalBytes = 0L
                             overallProcessTransferredBytes = 0L
                             currentUploadBatchId = null
@@ -438,6 +498,11 @@ class HostRuntimeController(
                             currentUploadBatchCompletedFiles = 0
                             currentUploadBatchActiveFiles = 0
                             currentUploadBatchTotalBytes = 0L
+                            currentDownloadBatchId = null
+                            currentDownloadBatchTotalFiles = 0
+                            currentDownloadBatchCompletedFiles = 0
+                            currentDownloadBatchActiveFiles = 0
+                            currentDownloadBatchTotalBytes = 0L
                         }
                     }
                     if (currentTransfer != null) {
@@ -636,7 +701,7 @@ class HostRuntimeController(
         }
         var summaryActiveFiles = active
         var summaryTotalFiles = active + queued
-        if (currentUploadBatchId != null && currentUploadBatchTotalFiles > 0) {
+        if (direction == TransferDirection.Uploading && currentUploadBatchId != null && currentUploadBatchTotalFiles > 0) {
             val hasActiveUploadBatch = transferById.values.any { transfer ->
                 transfer.direction == TransferDirection.Uploading && transfer.batchId == currentUploadBatchId
             }
@@ -644,6 +709,15 @@ class HostRuntimeController(
                 summaryActiveFiles = (currentUploadBatchCompletedFiles + currentUploadBatchActiveFiles)
                     .coerceIn(0, currentUploadBatchTotalFiles)
                 summaryTotalFiles = currentUploadBatchTotalFiles
+            }
+        } else if (direction == TransferDirection.Downloading && currentDownloadBatchId != null && currentDownloadBatchTotalFiles > 0) {
+            val hasActiveDownloadBatch = transferById.values.any { transfer ->
+                transfer.direction == TransferDirection.Downloading && transfer.batchId == currentDownloadBatchId
+            }
+            if (hasActiveDownloadBatch) {
+                summaryActiveFiles = (currentDownloadBatchCompletedFiles + currentDownloadBatchActiveFiles)
+                    .coerceIn(0, currentDownloadBatchTotalFiles)
+                summaryTotalFiles = currentDownloadBatchTotalFiles
             }
         }
         _transferSummary.value = TransferSummary(

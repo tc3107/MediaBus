@@ -681,7 +681,7 @@ function DriveView({
           </div>
           {transfer.active && (
             <div className="transfer-meta-row">
-              <span>{transfer.doneFiles}/{transfer.totalFiles} files</span>
+              {transfer.totalFiles > 1 ? <span>{transfer.doneFiles}/{transfer.totalFiles} files</span> : <span />}
               <span>{formatBytes(transfer.loadedBytes)} / {formatBytes(transfer.totalBytes)}</span>
             </div>
           )}
@@ -913,6 +913,8 @@ export default function App() {
   const [busy, setBusy] = useState(false)
   const [pathLoading, setPathLoading] = useState(false)
   const [error, setError] = useState('')
+  const [connectionLost, setConnectionLost] = useState(false)
+  const [connectionLostDetail, setConnectionLostDetail] = useState('')
 
   const [path, setPath] = useState('')
   const [items, setItems] = useState([])
@@ -988,6 +990,17 @@ export default function App() {
     )
   }
 
+  function isServerUnreachable(message) {
+    const value = String(message || '').toLowerCase()
+    return (
+      value.includes('networkerror') ||
+      value.includes('failed to fetch') ||
+      value.includes('unable to reach mediabus') ||
+      value.includes('load failed') ||
+      value.includes('connection issue')
+    )
+  }
+
   function scheduleBootstrapRetry(delayMs = 1400) {
     if (reconnectTimerRef.current) return
     reconnectTimerRef.current = setTimeout(() => {
@@ -1020,6 +1033,8 @@ export default function App() {
       const nextItems = data.items || []
       setPath(resolvedPath)
       currentPathRef.current = resolvedPath
+      setConnectionLost(false)
+      setConnectionLostDetail('')
       if (silent) {
         setItems(nextItems)
       } else {
@@ -1043,6 +1058,10 @@ export default function App() {
       if (requestSeq !== loadRequestSeqRef.current) return
       const message = friendlyErrorMessage(err.message || 'Failed to load files')
       if (!silent) setError(message)
+      if (isServerUnreachable(message)) {
+        setConnectionLost(true)
+        setConnectionLostDetail(message)
+      }
       if (!skipBootstrapOnError && looksLikeConnectionIssue(message)) {
         scheduleBootstrapRetry()
       }
@@ -1065,12 +1084,18 @@ export default function App() {
     try {
       const data = await api('/api/bootstrap')
       setBoot(data)
+      setConnectionLost(false)
+      setConnectionLostDetail('')
       if (data.paired) {
         await loadPath(currentPathRef.current || '', { skipBootstrapOnError: true })
       }
     } catch (err) {
       const message = friendlyErrorMessage(err.message || 'Failed to bootstrap')
       setError(message)
+      if (isServerUnreachable(message)) {
+        setConnectionLost(true)
+        setConnectionLostDetail(message)
+      }
       if (looksLikeConnectionIssue(message)) {
         scheduleBootstrapRetry()
       }
@@ -1287,10 +1312,11 @@ export default function App() {
   }
 
   async function fetchBlobWithProgress(relativeUrl, options = {}) {
-    const { signal, onProgress } = options
+    const { signal, onProgress, headers } = options
     const response = await fetch(relativeUrl, {
       credentials: 'include',
       cache: 'no-store',
+      headers,
       signal,
     })
     if (!response.ok) {
@@ -1406,7 +1432,8 @@ export default function App() {
     const selectedItems = selectedPaths
       .map((itemPath) => items.find((item) => item.path === itemPath))
       .filter(Boolean)
-    const totalFiles = selectedPaths.length
+    const selectedCount = selectedPaths.length
+    const totalFiles = 1
     let knownTotalBytes = selectedItems
       .filter((item) => !item.directory)
       .reduce((sum, item) => sum + (Number(item.size) || 0), 0)
@@ -1418,7 +1445,7 @@ export default function App() {
     setError('')
     setTransfer({
       active: true,
-      label: `Downloading ${totalFiles} selected item(s)`,
+      label: `Downloading ${selectedCount} selected item(s)`,
       loadedBytes: 0,
       totalBytes: knownTotalBytes,
       doneFiles: 0,
@@ -1438,7 +1465,7 @@ export default function App() {
           const totalForProgress = knownTotalBytes > 0 ? knownTotalBytes : Math.max(loaded, 1)
           setTransfer({
             active: true,
-            label: `Downloading ${totalFiles} selected item(s)`,
+            label: `Downloading ${selectedCount} selected item(s)`,
             loadedBytes: loaded,
             totalBytes: totalForProgress,
             doneFiles: 0,
@@ -1455,11 +1482,11 @@ export default function App() {
         label: 'Download complete',
         loadedBytes: completedBytes,
         totalBytes: completedBytes,
-        doneFiles: totalFiles,
-        totalFiles,
+        doneFiles: 1,
+        totalFiles: 1,
         progress: 1,
       })
-      setLog(`Downloaded ${totalFiles} selected item(s)`)
+      setLog(`Downloaded ${selectedPaths.length} selected item(s)`)
     } catch (err) {
       if (String(err?.name || '').toLowerCase() === 'aborterror') {
         setLog('Download cancelled')
@@ -1474,7 +1501,8 @@ export default function App() {
     }
   }
 
-  async function fetchShareFile(descriptor, onProgress) {
+  async function fetchShareFile(descriptor, onProgress, options = {}) {
+    const { batchHeaders } = options
     const key = shareCacheKey(descriptor)
     const cached = shareFileCacheRef.current.get(key)
     if (cached) {
@@ -1487,6 +1515,7 @@ export default function App() {
       const { response, blob, totalBytes } = await fetchBlobWithProgress(descriptor.href, {
         signal: controller.signal,
         onProgress,
+        headers: batchHeaders,
       })
       const name = fileNameFromDisposition(response.headers.get('content-disposition')) || descriptor.name || 'download'
       const type = blob.type || response.headers.get('content-type') || 'application/octet-stream'
@@ -1594,18 +1623,43 @@ export default function App() {
     let lastUiUpdateMs = 0
     const loadedByIndex = new Map()
     const totalByIndex = new Map()
+    const files = new Array(totalFiles)
     descriptors.forEach((descriptor, index) => {
       totalByIndex.set(index, Number(descriptor.size) || 0)
       loadedByIndex.set(index, 0)
     })
+    const baselineTotalBytes = Array.from(totalByIndex.values()).reduce((sum, value) => sum + (value || 0), 0)
+    const hasBaselineTotalBytes = baselineTotalBytes > 0
+    const batchId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : `share-${Date.now()}-${Math.random().toString(16).slice(2)}`
+    const batchHeaders = {
+      'X-MediaBus-Batch-Id': batchId,
+      'X-MediaBus-Batch-Total': String(totalFiles),
+      'X-MediaBus-Batch-Bytes': String(Math.max(0, baselineTotalBytes)),
+    }
     const getTotalBytes = () => Array.from(totalByIndex.values()).reduce((sum, value) => sum + (value || 0), 0)
     const getLoadedBytes = () => Array.from(loadedByIndex.values()).reduce((sum, value) => sum + (value || 0), 0)
+
+    // If this is a retry, account for already cached files before fetching.
+    descriptors.forEach((descriptor, index) => {
+      const cached = shareFileCacheRef.current.get(shareCacheKey(descriptor))
+      if (!cached) return
+      files[index] = cached.file
+      doneFiles += 1
+      loadedByIndex.set(index, cached.totalBytes)
+      if (!hasBaselineTotalBytes) {
+        totalByIndex.set(index, Math.max(totalByIndex.get(index) || 0, cached.totalBytes))
+      }
+    })
+    batchHeaders['X-MediaBus-Batch-Completed'] = String(Math.max(0, doneFiles))
+
     const refreshTransfer = (activeLabel, force = false) => {
       const now = Date.now()
       if (!force && now - lastUiUpdateMs < 80) return
       lastUiUpdateMs = now
       const loadedBytes = getLoadedBytes()
-      const knownTotalBytes = getTotalBytes()
+      const knownTotalBytes = hasBaselineTotalBytes ? baselineTotalBytes : getTotalBytes()
       const totalBytes = knownTotalBytes > 0 ? knownTotalBytes : Math.max(loadedBytes, 1)
       setTransfer({
         active: true,
@@ -1623,41 +1677,54 @@ export default function App() {
     setError('')
     setTransfer({
       active: true,
-      label: 'Caching files for share...',
-      loadedBytes: 0,
-      totalBytes: getTotalBytes(),
-      doneFiles: 0,
+      label: doneFiles > 0
+        ? `Downloading files for share (${doneFiles}/${totalFiles})`
+        : 'Caching files for share...',
+      loadedBytes: getLoadedBytes(),
+      totalBytes: hasBaselineTotalBytes ? baselineTotalBytes : getTotalBytes(),
+      doneFiles,
       totalFiles,
-      progress: 0,
+      progress: (() => {
+        const loaded = getLoadedBytes()
+        const total = (hasBaselineTotalBytes ? baselineTotalBytes : getTotalBytes()) || Math.max(loaded, 1)
+        return Math.min(loaded / total, 1)
+      })(),
     })
 
     try {
       if (!navigator.share || typeof File === 'undefined') {
         throw new Error('This browser does not support file sharing.')
       }
-      const files = await Promise.all(
-        descriptors.map(async (descriptor, index) => {
-          const result = await fetchShareFile(descriptor, (loaded, reportedTotal) => {
+      for (let index = 0; index < descriptors.length; index += 1) {
+        if (files[index]) {
+          continue
+        }
+        const descriptor = descriptors[index]
+        const result = await fetchShareFile(descriptor, (loaded, reportedTotal) => {
+          if (!hasBaselineTotalBytes) {
             const knownTotal = reportedTotal > 0 ? reportedTotal : Number(descriptor.size) || 0
             totalByIndex.set(index, knownTotal)
-            loadedByIndex.set(index, loaded)
-            refreshTransfer(`Caching files for share (${doneFiles}/${totalFiles})`)
-          })
-          doneFiles += 1
+          }
+          loadedByIndex.set(index, loaded)
+          const currentFile = Math.min(doneFiles + 1, totalFiles)
+          refreshTransfer(`Downloading files for share (${currentFile}/${totalFiles})`)
+        }, { batchHeaders })
+        doneFiles += 1
+        if (!hasBaselineTotalBytes) {
           totalByIndex.set(index, Math.max(totalByIndex.get(index) || 0, result.totalBytes))
-          loadedByIndex.set(index, result.totalBytes)
-          refreshTransfer(`Caching files for share (${doneFiles}/${totalFiles})`, true)
-          return result.file
-        }),
-      )
+        }
+        loadedByIndex.set(index, result.totalBytes)
+        refreshTransfer(`Downloading files for share (${doneFiles}/${totalFiles})`, true)
+        files[index] = result.file
+      }
 
-      if (files.length === 0) return
+      if (files.some((file) => !file)) return
       if (navigator.canShare && !navigator.canShare({ files })) {
         throw new Error('This browser cannot share these files.')
       }
 
       const loadedBytes = getLoadedBytes()
-      const totalBytes = getTotalBytes() || loadedBytes
+      const totalBytes = (hasBaselineTotalBytes ? baselineTotalBytes : getTotalBytes()) || loadedBytes
       setPreparedShare({
         ...shareRequest,
         files,
@@ -1870,6 +1937,8 @@ export default function App() {
             setError('Connection revoked by host.')
           } else {
             setError(friendlyErrorMessage(err?.message || 'Connection issue'))
+            setConnectionLost(true)
+            setConnectionLostDetail(friendlyErrorMessage(err?.message || 'Connection issue'))
           }
           await bootstrap({ keepCurrentView: true })
         })
@@ -1931,6 +2000,21 @@ export default function App() {
     return (
       <main className="drive-shell">
         <section className="glass-card loading-card">Loading MediaBus...</section>
+      </main>
+    )
+  }
+
+  if (connectionLost) {
+    return (
+      <main className="drive-shell">
+        <section className="glass-card loading-card">
+          <h2>Connection Lost</h2>
+          <p>Unable to reach the MediaBus host. Reconnect to continue.</p>
+          {connectionLostDetail && <p>{connectionLostDetail}</p>}
+          <button className="btn btn-primary" onClick={() => bootstrap({ keepCurrentView: true })}>
+            Retry Connection
+          </button>
+        </section>
       </main>
     )
   }

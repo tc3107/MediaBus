@@ -343,11 +343,19 @@ class MediaBusHttpServer(
         if (!node.isFile) {
             return newFixedLengthResponse(Response.Status.BAD_REQUEST, MIME_PLAINTEXT, "Expected file")
         }
+        val batchId = session.headers["x-mediabus-batch-id"]?.takeIf { it.isNotBlank() }
+        val batchTotalFiles = session.headers["x-mediabus-batch-total"]?.toIntOrNull() ?: 0
+        val batchTotalBytes = session.headers["x-mediabus-batch-bytes"]?.toLongOrNull() ?: 0L
+        val batchCompletedFiles = session.headers["x-mediabus-batch-completed"]?.toIntOrNull() ?: 0
 
         val ticket = runtime.beginTransfer(
             deviceId = auth.device.deviceId,
             direction = TransferDirection.Downloading,
             totalBytes = maxOf(0L, node.length()),
+            batchId = batchId,
+            batchTotalFiles = batchTotalFiles,
+            batchTotalBytes = batchTotalBytes,
+            batchCompletedFiles = batchCompletedFiles,
         ) ?: return newFixedLengthResponse(Response.Status.FORBIDDEN, MIME_PLAINTEXT, "Transfer unavailable")
         ServerLogger.i(
             LOG_COMPONENT,
@@ -380,12 +388,20 @@ class MediaBusHttpServer(
         if (!node.isDirectory) {
             return newFixedLengthResponse(Response.Status.BAD_REQUEST, MIME_PLAINTEXT, "Expected folder")
         }
+        val batchId = session.headers["x-mediabus-batch-id"]?.takeIf { it.isNotBlank() }
+        val batchTotalFiles = session.headers["x-mediabus-batch-total"]?.toIntOrNull() ?: 0
+        val batchTotalBytes = session.headers["x-mediabus-batch-bytes"]?.toLongOrNull() ?: 0L
+        val batchCompletedFiles = session.headers["x-mediabus-batch-completed"]?.toIntOrNull() ?: 0
 
         val totalBytes = calculateTreeSize(node)
         val ticket = runtime.beginTransfer(
             deviceId = auth.device.deviceId,
             direction = TransferDirection.Downloading,
             totalBytes = totalBytes,
+            batchId = batchId,
+            batchTotalFiles = batchTotalFiles,
+            batchTotalBytes = batchTotalBytes,
+            batchCompletedFiles = batchCompletedFiles,
         ) ?: return newFixedLengthResponse(Response.Status.FORBIDDEN, MIME_PLAINTEXT, "Transfer unavailable")
         ServerLogger.i(
             LOG_COMPONENT,
@@ -435,6 +451,10 @@ class MediaBusHttpServer(
         val uniquePaths = linkedSetOf<String>()
         val nodes = mutableListOf<Pair<String, DocumentFile>>()
         var totalBytes = 0L
+        val batchId = session.headers["x-mediabus-batch-id"]?.takeIf { it.isNotBlank() }
+        val batchTotalFiles = session.headers["x-mediabus-batch-total"]?.toIntOrNull() ?: 0
+        val batchTotalBytes = session.headers["x-mediabus-batch-bytes"]?.toLongOrNull() ?: 0L
+        val batchCompletedFiles = session.headers["x-mediabus-batch-completed"]?.toIntOrNull() ?: 0
         for (rawPath in rawPaths) {
             val segments = normalizePath(rawPath)
             if (segments.isEmpty()) {
@@ -457,6 +477,10 @@ class MediaBusHttpServer(
             deviceId = auth.device.deviceId,
             direction = TransferDirection.Downloading,
             totalBytes = totalBytes,
+            batchId = batchId,
+            batchTotalFiles = batchTotalFiles,
+            batchTotalBytes = batchTotalBytes,
+            batchCompletedFiles = batchCompletedFiles,
         ) ?: return newFixedLengthResponse(Response.Status.FORBIDDEN, MIME_PLAINTEXT, "Transfer unavailable")
         ServerLogger.i(
             LOG_COMPONENT,
