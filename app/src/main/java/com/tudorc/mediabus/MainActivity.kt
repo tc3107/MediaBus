@@ -323,6 +323,7 @@ class MainActivity : ComponentActivity() {
                     if (showAddressDialog) {
                         AddressDialog(
                             url = uiState.url,
+                            bindAddress = uiState.ipAddress,
                             onDismiss = { showAddressDialog = false },
                         )
                     }
@@ -969,6 +970,7 @@ private fun Context.mediaBusVibrator(): Vibrator? {
 @Composable
 private fun AddressDialog(
     url: String,
+    bindAddress: String?,
     onDismiss: () -> Unit,
 ) {
     val uriHandler = LocalUriHandler.current
@@ -1005,6 +1007,14 @@ private fun AddressDialog(
                             ).show()
                         }
                     },
+                )
+                Text(
+                    text = stringResource(
+                        R.string.bind_address_value,
+                        bindAddress ?: stringResource(R.string.bind_address_unknown),
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 QrCode(url = url)
             }

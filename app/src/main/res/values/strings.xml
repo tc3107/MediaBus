@@ -37,6 +37,8 @@
     <string name="pair_service_offline">Server must be online to pair</string>
     <string name="camera_permission_required">Camera permission is required to scan QR codes.</string>
     <string name="unable_to_open_url">Unable to open URL</string>
+    <string name="bind_address_value">Bind address: %1$s</string>
+    <string name="bind_address_unknown">unknown</string>
 
     <string name="qr_content_description">QR code for MediaBus local address</string>
     <string name="webserver_status_prefix">Webserver accessibility:</string>
