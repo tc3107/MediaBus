@@ -67,6 +67,10 @@ function pathCrumbs(path) {
   return crumbs
 }
 
+function UiIcon({ name, alt = '' }) {
+  return <img className="action-icon" src={`/ui-icons/${name}.svg`} alt={alt} aria-hidden={alt ? undefined : true} />
+}
+
 async function uploadOne(file, currentPath, folderUpload, batch, onProgress, onRequestCreated) {
   const relativeFolder = folderUpload && file.webkitRelativePath
     ? dirname(file.webkitRelativePath)
@@ -449,7 +453,7 @@ function DriveView({
         <header className="drive-header">
           <div className="breadcrumbs">
             <button className="crumb-up" title="Up" aria-label="Up" disabled={!canGoUp || busy} onClick={onUp}>
-              ↑
+              <UiIcon name="up" />
             </button>
             {crumbs.map((crumb, index) => (
               <button key={crumb.path || 'root'} className="crumb" onClick={() => onLoadPath(crumb.path)}>
@@ -471,7 +475,7 @@ function DriveView({
             disabled={busy || items.length === 0}
             onClick={() => onToggleSelectAll(!allSelected)}
           >
-            <span className="icon-symbol">{allSelected ? '☒' : '☑'}</span>
+            <span className="icon-symbol"><UiIcon name={allSelected ? 'deselect_all' : 'select_all'} /></span>
             <span className="control-label">{allSelected ? 'Clear Selection' : 'Select All'}</span>
           </button>
           {selectedCount > 0 ? (
@@ -483,7 +487,7 @@ function DriveView({
                 disabled={busy || !permissions.allowDownload}
                 onClick={onBatchDownload}
               >
-                <span className="icon-symbol">⬇</span>
+                <span className="icon-symbol"><UiIcon name="download" /></span>
                 <span className="control-label">Download ({selectedCount})</span>
               </button>
               <button
@@ -493,7 +497,7 @@ function DriveView({
                 disabled={busy || !permissions.allowDelete}
                 onClick={onBatchDelete}
               >
-                <span className="icon-symbol">🗑</span>
+                <span className="icon-symbol"><UiIcon name="delete" /></span>
                 <span className="control-label">Delete ({selectedCount})</span>
               </button>
             </>
@@ -505,7 +509,7 @@ function DriveView({
                 title="Upload File"
                 aria-label="Upload File"
               >
-                <span className="icon-symbol">↑📄</span>
+                <span className="icon-symbol"><UiIcon name="upload_file" /></span>
                 <span className="control-label">Upload File</span>
                 <input
                   type="file"
@@ -523,7 +527,7 @@ function DriveView({
                 title="Upload Folder"
                 aria-label="Upload Folder"
               >
-                <span className="icon-symbol">↑📁</span>
+                <span className="icon-symbol"><UiIcon name="upload_folder" /></span>
                 <span className="control-label">Upload Folder</span>
                 <input
                   type="file"
@@ -544,7 +548,7 @@ function DriveView({
                 disabled={busy || !permissions.allowUpload}
                 onClick={onCreateFolder}
               >
-                <span className="icon-symbol">+📁</span>
+                <span className="icon-symbol"><UiIcon name="new_folder" /></span>
                 <span className="control-label">New Folder</span>
               </button>
             </>
@@ -644,7 +648,7 @@ function DriveView({
                           onLoadPath(item.path)
                         }}
                       >
-                        <span className="folder-icon">📁</span>
+                        <span className="folder-icon"><UiIcon name="folder" /></span>
                         {item.name}
                       </button>
                     </td>
@@ -682,7 +686,7 @@ function DriveView({
                               if (busy || !permissions.allowDownload) event.preventDefault()
                             }}
                           >
-                            <span className="icon-symbol">⬇</span>
+                            <span className="icon-symbol"><UiIcon name="download" /></span>
                           </a>
                           <button
                             className="btn slim icon-btn"
@@ -691,7 +695,7 @@ function DriveView({
                             disabled={busy || !permissions.allowUpload}
                             onClick={() => onRenameItem(item)}
                           >
-                            <span className="icon-symbol">✎</span>
+                            <span className="icon-symbol"><UiIcon name="rename" /></span>
                           </button>
                           <button
                             className="btn slim btn-danger icon-btn"
@@ -700,7 +704,7 @@ function DriveView({
                             disabled={busy || !permissions.allowDelete}
                             onClick={() => onDeleteItem(item)}
                           >
-                            <span className="icon-symbol">🗑</span>
+                            <span className="icon-symbol"><UiIcon name="delete" /></span>
                           </button>
                         </div>
                       )}
@@ -710,7 +714,7 @@ function DriveView({
                   <tr className={selectedSet.has(item.path) ? 'selected-row' : ''} key={item.path} {...longPressBindRow(item.path)}>
                     <td className="name-cell">
                       <div className="row-name static">
-                        <span className="file-icon">📄</span>
+                        <span className="file-icon"><UiIcon name="file" /></span>
                         {item.name}
                       </div>
                     </td>
@@ -748,7 +752,7 @@ function DriveView({
                               if (busy || !permissions.allowDownload) event.preventDefault()
                             }}
                           >
-                            <span className="icon-symbol">⬇</span>
+                            <span className="icon-symbol"><UiIcon name="download" /></span>
                           </a>
                           <button
                             className="btn slim icon-btn"
@@ -757,7 +761,7 @@ function DriveView({
                             disabled={busy || !permissions.allowUpload}
                             onClick={() => onRenameItem(item)}
                           >
-                            <span className="icon-symbol">✎</span>
+                            <span className="icon-symbol"><UiIcon name="rename" /></span>
                           </button>
                           <button
                             className="btn slim btn-danger icon-btn"
@@ -766,7 +770,7 @@ function DriveView({
                             disabled={busy || !permissions.allowDelete}
                             onClick={() => onDeleteItem(item)}
                           >
-                            <span className="icon-symbol">🗑</span>
+                            <span className="icon-symbol"><UiIcon name="delete" /></span>
                           </button>
                         </div>
                       )}
@@ -806,6 +810,8 @@ export default function App() {
   const pairPollRef = useRef(null)
   const heartbeatRef = useRef(null)
   const filePollRef = useRef(null)
+  const reconnectTimerRef = useRef(null)
+  const bootstrapInFlightRef = useRef(false)
   const refreshInFlightRef = useRef(false)
   const currentPathRef = useRef('')
   const busyRef = useRef(false)
@@ -834,14 +840,40 @@ export default function App() {
       clearInterval(filePollRef.current)
       filePollRef.current = null
     }
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current)
+      reconnectTimerRef.current = null
+    }
     if (revealTimerRef.current) {
       clearTimeout(revealTimerRef.current)
       revealTimerRef.current = null
     }
   }
 
+  function looksLikeConnectionIssue(message) {
+    const value = String(message || '').toLowerCase()
+    return (
+      value.includes('networkerror') ||
+      value.includes('failed to fetch') ||
+      value.includes('unable to reach mediabus') ||
+      value.includes('load failed') ||
+      value.includes('unauthorized') ||
+      value.includes('session expired') ||
+      value.includes('connection issue') ||
+      value.includes('revoked')
+    )
+  }
+
+  function scheduleBootstrapRetry(delayMs = 1400) {
+    if (reconnectTimerRef.current) return
+    reconnectTimerRef.current = setTimeout(() => {
+      reconnectTimerRef.current = null
+      bootstrap({ keepCurrentView: true })
+    }, delayMs)
+  }
+
   async function loadPath(nextPath, options = {}) {
-    const { silent = false } = options
+    const { silent = false, skipBootstrapOnError = false } = options
     const requestedPath = nextPath || ''
     // Commit requested path immediately so background refresh does not race
     // and re-request an older directory right after user navigation.
@@ -885,7 +917,11 @@ export default function App() {
       if (!silent) setLog('')
     } catch (err) {
       if (requestSeq !== loadRequestSeqRef.current) return
-      if (!silent) setError(friendlyErrorMessage(err.message || 'Failed to load files'))
+      const message = friendlyErrorMessage(err.message || 'Failed to load files')
+      if (!silent) setError(message)
+      if (!skipBootstrapOnError && looksLikeConnectionIssue(message)) {
+        scheduleBootstrapRetry()
+      }
     } finally {
       if (!silent && requestSeq === loadRequestSeqRef.current) {
         setPathLoading(false)
@@ -893,20 +929,32 @@ export default function App() {
     }
   }
 
-  async function bootstrap() {
+  async function bootstrap(options = {}) {
+    const { keepCurrentView = false } = options
+    if (bootstrapInFlightRef.current) return
+    bootstrapInFlightRef.current = true
     clearTimers()
-    setLoading(true)
+    if (!keepCurrentView) {
+      setLoading(true)
+    }
     setError('')
     try {
       const data = await api('/api/bootstrap')
       setBoot(data)
       if (data.paired) {
-        await loadPath('')
+        await loadPath(currentPathRef.current || '', { skipBootstrapOnError: true })
       }
     } catch (err) {
-      setError(friendlyErrorMessage(err.message || 'Failed to bootstrap'))
+      const message = friendlyErrorMessage(err.message || 'Failed to bootstrap')
+      setError(message)
+      if (looksLikeConnectionIssue(message)) {
+        scheduleBootstrapRetry()
+      }
     } finally {
-      setLoading(false)
+      if (!keepCurrentView) {
+        setLoading(false)
+      }
+      bootstrapInFlightRef.current = false
     }
   }
 
@@ -1204,7 +1252,7 @@ export default function App() {
           } else {
             setError(friendlyErrorMessage(err?.message || 'Connection issue'))
           }
-          await bootstrap()
+          await bootstrap({ keepCurrentView: true })
         })
       }, 3000)
       filePollRef.current = setInterval(() => {

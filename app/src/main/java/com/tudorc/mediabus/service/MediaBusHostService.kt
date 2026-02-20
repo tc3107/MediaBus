@@ -275,7 +275,7 @@ class MediaBusHostService : LifecycleService() {
             var startedServer: MediaBusHttpServer? = null
             var mdnsStarted = false
             try {
-                val sslFactory = CertificateManager.createServerSocketFactory(ipAddress, DEFAULT_HOST_NAME)
+                val sslFactory = CertificateManager.createServerSocketFactory(applicationContext, DEFAULT_HOST_NAME)
                 val httpServer = MediaBusHttpServer(
                     appContext = applicationContext,
                     bindAddress = ipAddress,

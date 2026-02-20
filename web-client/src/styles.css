@@ -311,6 +311,30 @@ body {
 .icon-symbol {
   font-size: 15px;
   line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+}
+
+.action-icon {
+  height: 16px;
+  width: auto;
+  max-width: 20px;
+  display: block;
+}
+
+.crumb-up .action-icon {
+  height: 14px;
+  width: auto;
+  max-width: 16px;
+}
+
+.folder-icon .action-icon,
+.file-icon .action-icon {
+  height: 18px;
+  width: auto;
+  max-width: 20px;
 }
 
 .btn:hover {
@@ -325,8 +349,8 @@ body {
 }
 
 .btn-primary {
-  border-color: rgba(126, 204, 255, 0.6);
-  background: linear-gradient(145deg, rgba(71, 140, 227, 0.9), rgba(49, 112, 187, 0.86));
+  border-color: rgba(112, 176, 226, 0.56);
+  background: linear-gradient(145deg, rgba(56, 96, 149, 0.9), rgba(46, 84, 133, 0.88));
 }
 
 .btn-danger {

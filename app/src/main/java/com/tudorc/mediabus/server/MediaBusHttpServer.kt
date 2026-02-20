@@ -72,7 +72,11 @@ class MediaBusHttpServer(
 
                 session.method == Method.GET && (
                     session.uri == "/index.html" ||
-                        session.uri.startsWith("/assets/")
+                        session.uri.startsWith("/assets/") ||
+                        session.uri.startsWith("/icons/") ||
+                        session.uri.startsWith("/ui-icons/") ||
+                        session.uri == "/manifest.webmanifest" ||
+                        session.uri == "/sw.js"
                     ) -> {
                     serveWebAsset(session.uri)
                         ?: newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "Not found")
@@ -198,6 +202,7 @@ class MediaBusHttpServer(
                 .put("pairExpiresAt", challenge.expiresAtEpochMs)
                 .put("pairQrPayload", pairPayload),
         )
+        clearCookie(response, sessionCookieName)
         if (existingAnon == null) {
             setCookie(response, anonCookieName, anonId, maxAge = 60L * 60 * 24 * 90)
         }
@@ -903,7 +908,9 @@ class MediaBusHttpServer(
 
     private fun unauthorized(): Response {
         ServerLogger.w(LOG_COMPONENT, "Returning unauthorized response")
-        return newFixedLengthResponse(Response.Status.UNAUTHORIZED, MIME_PLAINTEXT, "Unauthorized")
+        return newFixedLengthResponse(Response.Status.UNAUTHORIZED, MIME_PLAINTEXT, "Unauthorized").apply {
+            clearCookie(this, sessionCookieName)
+        }
     }
 
     private fun sharedFolderUnavailable(): Response {
@@ -920,7 +927,11 @@ class MediaBusHttpServer(
     }
 
     private fun htmlResponse(html: String): Response {
-        return newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", html)
+        return newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", html).apply {
+            addHeader("Cache-Control", "no-store, no-cache, must-revalidate")
+            addHeader("Pragma", "no-cache")
+            addHeader("Expires", "0")
+        }
     }
 
     private fun serveWebAsset(uri: String): Response? {
@@ -948,7 +959,17 @@ class MediaBusHttpServer(
             mimeType,
             bytes.inputStream(),
             bytes.size.toLong(),
-        )
+        ).apply {
+            if (
+                relativePath == "index.html" ||
+                relativePath == "sw.js" ||
+                relativePath == "manifest.webmanifest"
+            ) {
+                addHeader("Cache-Control", "no-store, no-cache, must-revalidate")
+                addHeader("Pragma", "no-cache")
+                addHeader("Expires", "0")
+            }
+        }
     }
 
     private fun cookie(session: IHTTPSession, name: String): String? {

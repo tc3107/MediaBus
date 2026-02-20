@@ -1,10 +1,9 @@
-const CACHE_NAME = 'mediabus-shell-v3'
+const CACHE_NAME = 'mediabus-shell-v4'
 const OFFLINE_URL = '/index.html'
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll([
-      OFFLINE_URL,
       '/manifest.webmanifest',
       '/icons/icon-192.png',
       '/icons/icon-512.png',
@@ -39,27 +38,29 @@ self.addEventListener('fetch', (event) => {
   if (request.mode === 'navigate') {
     event.respondWith(
       fetch(request).then((response) => {
-        const clone = response.clone()
-        caches.open(CACHE_NAME).then((cache) => cache.put(request, clone))
+        if (response && response.status === 200) {
+          const clone = response.clone()
+          caches.open(CACHE_NAME).then((cache) => cache.put(OFFLINE_URL, clone))
+        }
         return response
       }).catch(async () => {
-        const cached = await caches.match(request)
-        return cached || caches.match(OFFLINE_URL)
+        const cached = await caches.match(OFFLINE_URL)
+        return cached || Response.error()
       }),
     )
     return
   }
 
   event.respondWith(
-    caches.match(request).then((cached) => {
-      if (cached) return cached
-      return fetch(request).then((response) => {
-        if (response && response.status === 200 && response.type === 'basic') {
-          const clone = response.clone()
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone))
-        }
-        return response
-      })
+    fetch(request).then((response) => {
+      if (response && response.status === 200 && response.type === 'basic') {
+        const clone = response.clone()
+        caches.open(CACHE_NAME).then((cache) => cache.put(request, clone))
+      }
+      return response
+    }).catch(async () => {
+      const cached = await caches.match(request)
+      return cached || Response.error()
     }),
   )
 })
