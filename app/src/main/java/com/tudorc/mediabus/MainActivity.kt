@@ -17,6 +17,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.LinearEasing
@@ -26,6 +27,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -72,6 +74,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
@@ -115,6 +119,14 @@ private fun controlButtonColors() = ButtonDefaults.filledTonalButtonColors(
     contentColor = TitleBlue,
     disabledContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.55f),
     disabledContentColor = TitleBlue.copy(alpha = 0.58f),
+)
+
+@Composable
+private fun attentionButtonColors() = ButtonDefaults.filledTonalButtonColors(
+    containerColor = MaterialTheme.colorScheme.primary,
+    contentColor = MaterialTheme.colorScheme.onPrimary,
+    disabledContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.45f),
+    disabledContentColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.6f),
 )
 
 class MainActivity : ComponentActivity() {
@@ -350,6 +362,19 @@ private fun HostControlPanel(
 ) {
     val context = LocalContext.current
     var permissionsExpanded by remember { mutableStateOf(false) }
+    var selectFolderPulseTick by remember { mutableStateOf(0) }
+    val selectFolderScale = remember { Animatable(1f) }
+    val needsFolderAttention = !uiState.serverRunning && !uiState.hasValidFolder
+    val startMissingFolder = !uiState.serverRunning && !uiState.hasValidFolder
+    val startEnabled = !uiState.serverTransitioning && (uiState.serverRunning || uiState.hasValidFolder)
+
+    LaunchedEffect(selectFolderPulseTick) {
+        if (selectFolderPulseTick == 0) return@LaunchedEffect
+        selectFolderScale.snapTo(1f)
+        selectFolderScale.animateTo(1.14f, animationSpec = tween(140))
+        selectFolderScale.animateTo(1f, animationSpec = tween(260))
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -398,15 +423,31 @@ private fun HostControlPanel(
                 uiState.error?.let { message ->
                     Text(text = message, color = MaterialTheme.colorScheme.error)
                 }
-                Button(
-                    modifier = Modifier.fillMaxWidth(),
-                    onClick = onToggleServer,
-                    enabled = !uiState.serverTransitioning && (uiState.serverRunning || uiState.hasValidFolder),
-                ) {
-                    Text(
-                        if (uiState.serverRunning) stringResource(R.string.stop_server)
-                        else stringResource(R.string.start_server),
-                    )
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    Button(
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = onToggleServer,
+                        enabled = startEnabled,
+                    ) {
+                        Text(
+                            if (uiState.serverRunning) stringResource(R.string.stop_server)
+                            else stringResource(R.string.start_server),
+                        )
+                    }
+                    if (!uiState.serverTransitioning && startMissingFolder) {
+                        Box(
+                            modifier = Modifier
+                                .matchParentSize()
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                    onClick = {
+                                        MediaBusHaptics.performTap(context)
+                                        selectFolderPulseTick++
+                                    },
+                                ),
+                        )
+                    }
                 }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -415,9 +456,15 @@ private fun HostControlPanel(
                     FilledTonalButton(
                         modifier = Modifier.weight(1f),
                         onClick = onSelectFolder,
-                        colors = controlButtonColors(),
+                        colors = if (needsFolderAttention) attentionButtonColors() else controlButtonColors(),
                     ) {
-                        Text(stringResource(R.string.select_folder))
+                        Text(
+                            text = stringResource(R.string.select_folder),
+                            modifier = Modifier.graphicsLayer(
+                                scaleX = selectFolderScale.value,
+                                scaleY = selectFolderScale.value,
+                            ),
+                        )
                     }
                     FilledTonalButton(
                         modifier = Modifier.weight(1f),
@@ -917,6 +964,7 @@ private fun QrCode(
 ) {
     val cacheKey = remember(url) { "qr|$url|512" }
     val qrBackground = if (reverseContrast) Color.Black else Color.White
+    val blurModifier = if (reverseContrast) Modifier.blur(2.dp) else Modifier
     val cachedPair by produceState<QrBitmapPair?>(
         initialValue = QrBitmapCache.get(cacheKey),
         key1 = cacheKey,
@@ -940,6 +988,7 @@ private fun QrCode(
             contentDescription = stringResource(R.string.qr_content_description),
             modifier = modifier
                 .size(size)
+                .then(blurModifier)
                 .background(qrBackground, shape = MaterialTheme.shapes.medium)
                 .padding(if (size < 120.dp) 6.dp else 10.dp),
         )
@@ -947,6 +996,7 @@ private fun QrCode(
         Box(
             modifier = modifier
                 .size(size)
+                .then(blurModifier)
                 .background(qrBackground, shape = MaterialTheme.shapes.medium)
                 .padding(if (size < 120.dp) 6.dp else 10.dp),
         )
