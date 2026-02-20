@@ -563,13 +563,13 @@ function DriveView({
         <div className="toolbar modern-toolbar">
           <button
             className="btn icon-btn control-btn"
-            title={allSelected ? 'Clear selection' : 'Select all'}
-            aria-label={allSelected ? 'Clear selection' : 'Select all'}
+            title={selectedCount > 0 ? 'Clear selection' : 'Select all'}
+            aria-label={selectedCount > 0 ? 'Clear selection' : 'Select all'}
             disabled={busy || items.length === 0}
-            onClick={() => onToggleSelectAll(!allSelected)}
+            onClick={() => onToggleSelectAll(selectedCount === 0)}
           >
-            <span className="icon-symbol"><UiIcon name={allSelected ? 'deselect_all' : 'select_all'} /></span>
-            <span className="control-label">{allSelected ? 'Clear Selection' : 'Select All'}</span>
+            <span className="icon-symbol"><UiIcon name={selectedCount > 0 ? 'deselect_all' : 'select_all'} /></span>
+            <span className="control-label">{selectedCount > 0 ? 'Clear Selection' : 'Select All'}</span>
           </button>
           {selectedCount > 0 ? (
             <>
@@ -584,7 +584,7 @@ function DriveView({
                 <span className="control-label">Download ({selectedCount})</span>
               </button>
               <button
-                className={`btn icon-btn control-btn ${batchShareArmed ? 'share-armed' : ''}`}
+                className={`btn btn-primary icon-btn control-btn ${batchShareArmed ? 'share-armed' : ''}`}
                 title="Share selected"
                 aria-label="Share selected"
                 disabled={busy || !permissions.allowDownload}
