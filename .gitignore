@@ -4,10 +4,14 @@
 .idea/
 .DS_Store
 /build
+/app/build/
 /captures
 .externalNativeBuild
 .cxx
 local.properties
 web-client/node_modules/
 web-client/.vite/
+web-client/dist/
 .kotlin/
+*.jks
+*.keystore
