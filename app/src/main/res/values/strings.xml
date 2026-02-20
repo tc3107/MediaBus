@@ -42,5 +42,6 @@
     <string name="webserver_status_prefix">Webserver accessibility:</string>
     <string name="webserver_status_online">Online</string>
     <string name="webserver_status_offline">Offline</string>
+    <string name="webserver_status_starting">Starting</string>
     <string name="webserver_status_stopping">Stopping</string>
 </resources>

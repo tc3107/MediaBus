@@ -145,15 +145,45 @@ class MainActivity : ComponentActivity() {
                 var showCodeDialog by remember { mutableStateOf(false) }
                 var showScanner by remember { mutableStateOf(false) }
                 var pairCode by remember { mutableStateOf("") }
-                var wasTransitioning by remember { mutableStateOf(uiState.serverTransitioning) }
+                var immediateStartRipple by remember { mutableStateOf(false) }
+                var delayedOnlineDisplayed by remember { mutableStateOf(uiState.serverRunning) }
+                val hapticTransitioning = immediateStartRipple ||
+                    uiState.serverTransitioning ||
+                    (uiState.serverRunning && !delayedOnlineDisplayed)
+                var wasTransitioning by remember { mutableStateOf(hapticTransitioning) }
 
-                LaunchedEffect(uiState.serverTransitioning) {
-                    if (uiState.serverTransitioning) {
+                LaunchedEffect(uiState.serverRunning) {
+                    if (!uiState.serverRunning) {
+                        delayedOnlineDisplayed = false
+                    } else {
+                        delayedOnlineDisplayed = false
+                        delay(1_000)
+                        if (uiState.serverRunning) {
+                            delayedOnlineDisplayed = true
+                        }
+                    }
+                }
+
+                LaunchedEffect(uiState.serverTransitioning, uiState.serverRunning) {
+                    if (uiState.serverTransitioning || uiState.serverRunning) {
+                        immediateStartRipple = false
+                    }
+                }
+                LaunchedEffect(immediateStartRipple) {
+                    if (!immediateStartRipple) return@LaunchedEffect
+                    delay(1_500)
+                    if (!uiState.serverTransitioning && !uiState.serverRunning) {
+                        immediateStartRipple = false
+                    }
+                }
+
+                LaunchedEffect(hapticTransitioning) {
+                    if (hapticTransitioning) {
                         MediaBusHaptics.startTransitionWave(context)
                     } else {
                         MediaBusHaptics.stopTransitionWave(context, withRelease = wasTransitioning)
                     }
-                    wasTransitioning = uiState.serverTransitioning
+                    wasTransitioning = hapticTransitioning
                 }
                 DisposableEffect(Unit) {
                     onDispose {
@@ -243,7 +273,12 @@ class MainActivity : ComponentActivity() {
                             onToggleServer = {
                                 if (uiState.serverTransitioning) return@HostControlPanel
                                 MediaBusHaptics.performTap(context)
-                                if (uiState.serverRunning) viewModel.stopServer() else viewModel.startServer()
+                                if (uiState.serverRunning) {
+                                    viewModel.stopServer()
+                                } else {
+                                    immediateStartRipple = true
+                                    viewModel.startServer()
+                                }
                             },
                             onShowAddress = {
                                 MediaBusHaptics.performTap(context)
@@ -364,9 +399,28 @@ private fun HostControlPanel(
     var permissionsExpanded by remember { mutableStateOf(false) }
     var selectFolderPulseTick by remember { mutableStateOf(0) }
     val selectFolderScale = remember { Animatable(1f) }
-    val needsFolderAttention = !uiState.serverRunning && !uiState.hasValidFolder
-    val startMissingFolder = !uiState.serverRunning && !uiState.hasValidFolder
-    val startEnabled = !uiState.serverTransitioning && (uiState.serverRunning || uiState.hasValidFolder)
+    var delayedServerRunning by remember { mutableStateOf(uiState.serverRunning) }
+
+    LaunchedEffect(uiState.serverRunning) {
+        if (!uiState.serverRunning) {
+            delayedServerRunning = false
+        } else {
+            delayedServerRunning = false
+            delay(1_000)
+            if (uiState.serverRunning) {
+                delayedServerRunning = true
+            }
+        }
+    }
+
+    val serverStartingWarmup = uiState.serverRunning && !delayedServerRunning
+    val effectiveUiState = uiState.copy(
+        serverRunning = delayedServerRunning,
+        serverTransitioning = uiState.serverTransitioning || serverStartingWarmup,
+    )
+    val needsFolderAttention = !effectiveUiState.serverRunning && !effectiveUiState.hasValidFolder
+    val startMissingFolder = !effectiveUiState.serverRunning && !effectiveUiState.hasValidFolder
+    val startEnabled = !effectiveUiState.serverTransitioning && (effectiveUiState.serverRunning || effectiveUiState.hasValidFolder)
 
     LaunchedEffect(selectFolderPulseTick) {
         if (selectFolderPulseTick == 0) return@LaunchedEffect
@@ -392,9 +446,9 @@ private fun HostControlPanel(
         )
 
         val borderColor = when {
-            uiState.serverTransitioning -> Color(0xFFFF9A3D)
-            uiState.transferSummary.inProgress -> Color(0xFF4FA8FF)
-            uiState.serverRunning -> Color(0xFF2FC16A)
+            effectiveUiState.serverTransitioning -> Color(0xFFFF9A3D)
+            effectiveUiState.transferSummary.inProgress -> Color(0xFF4FA8FF)
+            effectiveUiState.serverRunning -> Color(0xFF2FC16A)
             else -> Color(0xFFD95C5C)
         }
         val borderBrush = animatedStatusBorderBrush(borderColor)
@@ -418,9 +472,9 @@ private fun HostControlPanel(
                     fontWeight = FontWeight.SemiBold,
                     color = TitleBlue,
                 )
-                Text(text = uiState.statusText, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                WebServerAccessibilityStatus(uiState = uiState)
-                uiState.error?.let { message ->
+                Text(text = effectiveUiState.statusText, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                WebServerAccessibilityStatus(uiState = effectiveUiState)
+                effectiveUiState.error?.let { message ->
                     Text(text = message, color = MaterialTheme.colorScheme.error)
                 }
                 Box(modifier = Modifier.fillMaxWidth()) {
@@ -430,11 +484,11 @@ private fun HostControlPanel(
                         enabled = startEnabled,
                     ) {
                         Text(
-                            if (uiState.serverRunning) stringResource(R.string.stop_server)
+                            if (effectiveUiState.serverRunning) stringResource(R.string.stop_server)
                             else stringResource(R.string.start_server),
                         )
                     }
-                    if (!uiState.serverTransitioning && startMissingFolder) {
+                    if (!effectiveUiState.serverTransitioning && startMissingFolder) {
                         Box(
                             modifier = Modifier
                                 .matchParentSize()
@@ -527,15 +581,15 @@ private fun HostControlPanel(
         }
 
         PairingControlsCard(
-            serverOnline = uiState.serverRunning,
-            serverTransitioning = uiState.serverTransitioning,
-            connectedDeviceCount = uiState.pairedDevices.count { it.presence != DevicePresence.Disconnected },
+            serverOnline = effectiveUiState.serverRunning,
+            serverTransitioning = effectiveUiState.serverTransitioning,
+            connectedDeviceCount = effectiveUiState.pairedDevices.count { it.presence != DevicePresence.Disconnected },
             onOpenScanner = onOpenScanner,
             onOpenManualPair = onOpenManualPair,
             onOpenAddress = onShowAddress,
         )
 
-        StatsCard(uiState = uiState)
+        StatsCard(uiState = effectiveUiState)
     }
 }
 
@@ -709,12 +763,15 @@ private fun StatsCard(uiState: HostControlUiState) {
 @Composable
 private fun WebServerAccessibilityStatus(uiState: HostControlUiState) {
     val isStopping = uiState.serverTransitioning && uiState.serverRunning
+    val isStarting = uiState.serverTransitioning && !uiState.serverRunning
     val label = when {
-        uiState.serverRunning -> stringResource(R.string.webserver_status_online)
         isStopping -> stringResource(R.string.webserver_status_stopping)
+        isStarting -> stringResource(R.string.webserver_status_starting)
+        uiState.serverRunning -> stringResource(R.string.webserver_status_online)
         else -> stringResource(R.string.webserver_status_offline)
     }
     val stateColor = when {
+        isStopping || isStarting -> Color(0xFFFF9A3D)
         uiState.serverRunning -> Color(0xFF2FC16A)
         else -> Color(0xFFD95C5C)
     }

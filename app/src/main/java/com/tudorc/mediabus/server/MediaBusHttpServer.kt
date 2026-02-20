@@ -320,6 +320,9 @@ class MediaBusHttpServer(
             .put("path", segments.joinToString("/"))
             .put("items", JSONArray(items))
             .put("showHiddenFiles", includeHidden)
+            .put("allowUpload", runtime.uploadEnabled())
+            .put("allowDownload", runtime.downloadEnabled())
+            .put("allowDelete", runtime.deleteEnabled())
         return jsonResponse(payload)
     }
 

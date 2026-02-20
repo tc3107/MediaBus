@@ -953,6 +953,32 @@ export default function App() {
     allowDelete: !!boot?.allowDelete,
   }
 
+  function syncPermissionsFromPayload(payload) {
+    const hasPermissionSnapshot = (
+      typeof payload?.allowUpload === 'boolean' ||
+      typeof payload?.allowDownload === 'boolean' ||
+      typeof payload?.allowDelete === 'boolean'
+    )
+    if (!hasPermissionSnapshot) return
+    setBoot((prev) => {
+      if (!prev) return prev
+      const next = {
+        ...prev,
+        allowUpload: typeof payload.allowUpload === 'boolean' ? payload.allowUpload : !!prev.allowUpload,
+        allowDownload: typeof payload.allowDownload === 'boolean' ? payload.allowDownload : !!prev.allowDownload,
+        allowDelete: typeof payload.allowDelete === 'boolean' ? payload.allowDelete : !!prev.allowDelete,
+      }
+      if (
+        next.allowUpload === prev.allowUpload &&
+        next.allowDownload === prev.allowDownload &&
+        next.allowDelete === prev.allowDelete
+      ) {
+        return prev
+      }
+      return next
+    })
+  }
+
   function clearTimers() {
     if (pairPollRef.current) {
       clearInterval(pairPollRef.current)
@@ -1029,6 +1055,7 @@ export default function App() {
     try {
       const data = await api(`/api/files/list?path=${encodeURIComponent(requestedPath)}`)
       if (requestSeq !== loadRequestSeqRef.current) return
+      syncPermissionsFromPayload(data)
       const resolvedPath = data.path || requestedPath
       const nextItems = data.items || []
       setPath(resolvedPath)
@@ -1059,8 +1086,12 @@ export default function App() {
       const message = friendlyErrorMessage(err.message || 'Failed to load files')
       if (!silent) setError(message)
       if (isServerUnreachable(message)) {
-        setConnectionLost(true)
-        setConnectionLostDetail(message)
+        // Avoid hard-failing UI on transient background poll hiccups when we already
+        // have a rendered listing. Foreground loads still surface connection-lost.
+        if (!silent || items.length === 0) {
+          setConnectionLost(true)
+          setConnectionLostDetail(message)
+        }
       }
       if (!skipBootstrapOnError && looksLikeConnectionIssue(message)) {
         scheduleBootstrapRetry()
