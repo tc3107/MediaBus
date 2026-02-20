@@ -40,6 +40,13 @@ function dirname(path) {
   return parts.join('/')
 }
 
+function downloadHrefForItem(item) {
+  if (!item) return ''
+  return item.directory
+    ? `/api/files/download-zip?path=${encodeURIComponent(item.path)}`
+    : `/api/files/download?path=${encodeURIComponent(item.path)}`
+}
+
 function formatBytes(bytes) {
   if (bytes < 1024) return `${bytes} B`
   const kb = bytes / 1024
@@ -151,8 +158,10 @@ function DriveView({
   onToggleSelectByLongPress,
   onToggleSelectAll,
   onBatchDownload,
+  onBatchShare,
   onBatchDelete,
   onCancelUpload,
+  onShareItem,
 }) {
   const crumbs = pathCrumbs(path)
   const [isMobile, setIsMobile] = useState(() => {
@@ -160,6 +169,7 @@ function DriveView({
     return window.matchMedia('(max-width: 760px)').matches
   })
   const [openMenuPath, setOpenMenuPath] = useState('')
+  const [mobileMenuExtraSpace, setMobileMenuExtraSpace] = useState(0)
   const [sortBy, setSortBy] = useState('name')
   const [sortDirection, setSortDirection] = useState('down')
   const selectAllRef = useRef(null)
@@ -187,6 +197,7 @@ function DriveView({
 
   useEffect(() => {
     setOpenMenuPath('')
+    setMobileMenuExtraSpace(0)
   }, [path, items.length, isMobile])
 
   useEffect(() => {
@@ -204,6 +215,11 @@ function DriveView({
       document.removeEventListener('pointerdown', onGlobalPress)
       document.removeEventListener('keydown', onEscape)
     }
+  }, [openMenuPath])
+
+  useEffect(() => {
+    if (openMenuPath) return
+    setMobileMenuExtraSpace(0)
   }, [openMenuPath])
 
   const selectedSet = useMemo(() => new Set(selectedPaths || []), [selectedPaths])
@@ -361,9 +377,7 @@ function DriveView({
 
   function downloadHrefFor(item) {
     if (busy || !permissions.allowDownload) return undefined
-    return item.directory
-      ? `/api/files/download-zip?path=${encodeURIComponent(item.path)}`
-      : `/api/files/download?path=${encodeURIComponent(item.path)}`
+    return downloadHrefForItem(item)
   }
 
   function MobileMenu({ item }) {
@@ -387,6 +401,31 @@ function DriveView({
       const shouldOpenUpward = spaceBelow < menuHeight + 8 && spaceAbove > spaceBelow
       setOpenUpward(shouldOpenUpward)
     }, [isOpen, item.path])
+
+    useEffect(() => {
+      if (!isOpen) return undefined
+      const syncPanelSpace = () => {
+        const menu = menuRef.current
+        const wrap = tableWrapRef.current
+        if (!menu || !wrap) return
+        const menuRect = menu.getBoundingClientRect()
+        const wrapRect = wrap.getBoundingClientRect()
+        const overflowBottom = Math.ceil(menuRect.bottom - wrapRect.bottom)
+        if (overflowBottom <= 0) return
+        const required = overflowBottom + 10
+        setMobileMenuExtraSpace((prev) => (required > prev ? required : prev))
+      }
+      const frame = window.requestAnimationFrame(syncPanelSpace)
+      window.addEventListener('resize', syncPanelSpace)
+      window.visualViewport?.addEventListener('resize', syncPanelSpace)
+      window.visualViewport?.addEventListener('scroll', syncPanelSpace)
+      return () => {
+        window.cancelAnimationFrame(frame)
+        window.removeEventListener('resize', syncPanelSpace)
+        window.visualViewport?.removeEventListener('resize', syncPanelSpace)
+        window.visualViewport?.removeEventListener('scroll', syncPanelSpace)
+      }
+    }, [isOpen, openUpward, item.path])
 
     return (
       <div className="mobile-menu-shell">
@@ -415,6 +454,16 @@ function DriveView({
             >
               {item.directory ? 'Download folder' : 'Download file'}
             </a>
+            <button
+              className="mobile-menu-item"
+              disabled={busy || !permissions.allowDownload}
+              onClick={() => {
+                setOpenMenuPath('')
+                onShareItem(item)
+              }}
+            >
+              Share
+            </button>
             <button
               className="mobile-menu-item"
               disabled={busy || !permissions.allowUpload}
@@ -489,6 +538,16 @@ function DriveView({
               >
                 <span className="icon-symbol"><UiIcon name="download" /></span>
                 <span className="control-label">Download ({selectedCount})</span>
+              </button>
+              <button
+                className="btn icon-btn control-btn"
+                title="Share selected link"
+                aria-label="Share selected link"
+                disabled={busy || !permissions.allowDownload}
+                onClick={onBatchShare}
+              >
+                <span className="icon-symbol"><UiIcon name="share" /></span>
+                <span className="control-label">Share ({selectedCount})</span>
               </button>
               <button
                 className="btn btn-danger icon-btn control-btn"
@@ -584,7 +643,11 @@ function DriveView({
           )}
         </div>
 
-        <div ref={tableWrapRef} className="table-wrap modern-table-wrap">
+        <div
+          ref={tableWrapRef}
+          className={`table-wrap modern-table-wrap ${mobileMenuExtraSpace > 0 ? 'menu-expanded' : ''}`}
+          style={isMobile ? { paddingBottom: `${mobileMenuExtraSpace}px` } : undefined}
+        >
           <table className={`modern-table ${isMobile ? 'mobile' : ''}`}>
             <thead>
               <tr>
@@ -690,6 +753,15 @@ function DriveView({
                           </a>
                           <button
                             className="btn slim icon-btn"
+                            title="Share"
+                            aria-label="Share"
+                            disabled={busy || !permissions.allowDownload}
+                            onClick={() => onShareItem(item)}
+                          >
+                            <span className="icon-symbol"><UiIcon name="share" /></span>
+                          </button>
+                          <button
+                            className="btn slim icon-btn"
                             title="Rename"
                             aria-label="Rename"
                             disabled={busy || !permissions.allowUpload}
@@ -754,6 +826,15 @@ function DriveView({
                           >
                             <span className="icon-symbol"><UiIcon name="download" /></span>
                           </a>
+                          <button
+                            className="btn slim icon-btn"
+                            title="Share"
+                            aria-label="Share"
+                            disabled={busy || !permissions.allowDownload}
+                            onClick={() => onShareItem(item)}
+                          >
+                            <span className="icon-symbol"><UiIcon name="share" /></span>
+                          </button>
                           <button
                             className="btn slim icon-btn"
                             title="Rename"
@@ -1173,6 +1254,43 @@ export default function App() {
     setLog(`Downloading ${selectedPaths.length} selected item(s)`)
   }
 
+  async function shareUrl(relativeUrl, label) {
+    const absoluteUrl = new URL(relativeUrl, window.location.origin).toString()
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: 'MediaBus', text: label, url: absoluteUrl })
+      } else if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(absoluteUrl)
+      } else {
+        window.prompt('Copy this link:', absoluteUrl)
+      }
+      setLog(`Shared ${label}`)
+    } catch (err) {
+      if (String(err?.name || '').toLowerCase() === 'aborterror') return
+      setError(friendlyErrorMessage(err?.message || 'Share failed'))
+    }
+  }
+
+  async function shareItem(item) {
+    if (!item) return
+    if (!permissions.allowDownload) {
+      setError('Downloads are disabled by host settings.')
+      return
+    }
+    await shareUrl(downloadHrefForItem(item), item.name || 'item')
+  }
+
+  async function batchShareSelected() {
+    if (selectedPaths.length === 0) return
+    if (!permissions.allowDownload) {
+      setError('Downloads are disabled by host settings.')
+      return
+    }
+    const params = new URLSearchParams()
+    selectedPaths.forEach((itemPath) => params.append('path', itemPath))
+    await shareUrl(`/api/files/download-zip-batch?${params.toString()}`, `${selectedPaths.length} selected item(s)`)
+  }
+
   async function createFolder() {
     if (!permissions.allowUpload) {
       setError('Folder creation is disabled by host settings.')
@@ -1358,8 +1476,10 @@ export default function App() {
           onToggleSelectByLongPress={toggleSelectByLongPress}
           onToggleSelectAll={toggleSelectAll}
           onBatchDownload={batchDownloadSelected}
+          onBatchShare={batchShareSelected}
           onBatchDelete={batchDeleteSelected}
           onCancelUpload={cancelUpload}
+          onShareItem={shareItem}
         />
       )}
     </main>

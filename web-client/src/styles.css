@@ -487,6 +487,11 @@ body {
   overflow-y: hidden;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-x: none;
+  transition: padding-bottom 180ms ease;
+}
+
+.modern-table-wrap.menu-expanded {
+  transition-duration: 210ms;
 }
 
 .modern-table {
@@ -730,11 +735,25 @@ body {
   background: rgba(12, 19, 31, 0.96);
   box-shadow: 0 16px 28px rgba(3, 8, 16, 0.56);
   overflow: hidden;
+  transform-origin: top right;
+  animation: mobile-menu-in 150ms ease;
 }
 
 .mobile-menu.open-upward {
   top: auto;
   bottom: calc(100% + 6px);
+  transform-origin: bottom right;
+}
+
+@keyframes mobile-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .mobile-menu-item {
