@@ -47,6 +47,53 @@ function downloadHrefForItem(item) {
     : `/api/files/download?path=${encodeURIComponent(item.path)}`
 }
 
+function basename(path) {
+  const segments = String(path || '').split('/').filter(Boolean)
+  return segments.length ? segments[segments.length - 1] : ''
+}
+
+function defaultDownloadFileName(item, fallbackIndex = 0) {
+  const fallbackBase = item?.name || basename(item?.path) || `item-${fallbackIndex + 1}`
+  if (item?.directory) return `${fallbackBase}.zip`
+  return fallbackBase
+}
+
+function fileNameFromDisposition(headerValue) {
+  const value = String(headerValue || '')
+  const utf8Match = value.match(/filename\*=UTF-8''([^;]+)/i)
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1].trim())
+    } catch (_) {
+    }
+  }
+  const plainMatch = value.match(/filename="?([^"]+)"?/i)
+  return plainMatch?.[1]?.trim() || ''
+}
+
+function parseContentLength(headerValue) {
+  const numeric = Number(headerValue)
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : 0
+}
+
+function saveBlobToDevice(blob, fileName) {
+  const objectUrl = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = objectUrl
+  link.download = fileName || 'download'
+  link.style.display = 'none'
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 15000)
+}
+
+function shareCacheKey(descriptor) {
+  const href = String(descriptor?.href || '')
+  const revision = String(descriptor?.revision || '')
+  return `${href}::${revision}`
+}
+
 function formatBytes(bytes) {
   if (bytes < 1024) return `${bytes} B`
   const kb = bytes / 1024
@@ -157,10 +204,13 @@ function DriveView({
   onToggleSelectPath,
   onToggleSelectByLongPress,
   onToggleSelectAll,
+  shareArmedItemPath,
+  shareArmedBatchKey,
+  onDownloadItem,
   onBatchDownload,
   onBatchShare,
   onBatchDelete,
-  onCancelUpload,
+  onCancelTransfer,
   onShareItem,
 }) {
   const crumbs = pathCrumbs(path)
@@ -225,6 +275,8 @@ function DriveView({
   const selectedSet = useMemo(() => new Set(selectedPaths || []), [selectedPaths])
   const selectedCount = selectedSet.size
   const selectionMode = selectedCount > 0
+  const batchShareKey = (selectedPaths || []).join('\n')
+  const batchShareArmed = !!shareArmedBatchKey && shareArmedBatchKey === batchShareKey
   const allSelected = items.length > 0 && items.every((item) => selectedSet.has(item.path))
   const sortedItems = useMemo(() => {
     const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
@@ -375,11 +427,6 @@ function DriveView({
     }
   }
 
-  function downloadHrefFor(item) {
-    if (busy || !permissions.allowDownload) return undefined
-    return downloadHrefForItem(item)
-  }
-
   function MobileMenu({ item }) {
     const isOpen = openMenuPath === item.path
     const [openUpward, setOpenUpward] = useState(false)
@@ -441,21 +488,18 @@ function DriveView({
         </button>
         {isOpen && (
           <div ref={menuRef} className={`mobile-menu ${openUpward ? 'open-upward' : ''}`}>
-            <a
-              className={`mobile-menu-item ${busy || !permissions.allowDownload ? 'disabled-link' : ''}`}
-              href={downloadHrefFor(item)}
-              onClick={(event) => {
-                if (busy || !permissions.allowDownload) {
-                  event.preventDefault()
-                  return
-                }
+            <button
+              className="mobile-menu-item"
+              disabled={busy || !permissions.allowDownload}
+              onClick={() => {
                 setOpenMenuPath('')
+                onDownloadItem(item)
               }}
             >
               {item.directory ? 'Download folder' : 'Download file'}
-            </a>
+            </button>
             <button
-              className="mobile-menu-item"
+              className={`mobile-menu-item ${shareArmedItemPath === item.path ? 'share-armed' : ''}`}
               disabled={busy || !permissions.allowDownload}
               onClick={() => {
                 setOpenMenuPath('')
@@ -540,9 +584,9 @@ function DriveView({
                 <span className="control-label">Download ({selectedCount})</span>
               </button>
               <button
-                className="btn icon-btn control-btn"
-                title="Share selected link"
-                aria-label="Share selected link"
+                className={`btn icon-btn control-btn ${batchShareArmed ? 'share-armed' : ''}`}
+                title="Share selected"
+                aria-label="Share selected"
                 disabled={busy || !permissions.allowDownload}
                 onClick={onBatchShare}
               >
@@ -623,7 +667,7 @@ function DriveView({
                 {transfer.active ? `${Math.round(transfer.progress * 100)}%` : ''}
               </span>
               {transfer.active && (
-                <button className="btn slim btn-danger icon-btn" title="Cancel upload" aria-label="Cancel upload" onClick={onCancelUpload}>
+                <button className="btn slim btn-danger icon-btn" title="Cancel transfer" aria-label="Cancel transfer" onClick={onCancelTransfer}>
                   <span className="icon-symbol">✕</span>
                 </button>
               )}
@@ -740,19 +784,17 @@ function DriveView({
                         </div>
                       ) : (
                         <div className="actions-row">
-                          <a
-                            className={`btn slim icon-btn ${busy || !permissions.allowDownload ? 'disabled-link' : ''}`}
-                            href={downloadHrefFor(item)}
-                            title="Download folder"
-                            aria-label="Download folder"
-                            onClick={(event) => {
-                              if (busy || !permissions.allowDownload) event.preventDefault()
-                            }}
-                          >
-                            <span className="icon-symbol"><UiIcon name="download" /></span>
-                          </a>
                           <button
                             className="btn slim icon-btn"
+                            title="Download folder"
+                            aria-label="Download folder"
+                            disabled={busy || !permissions.allowDownload}
+                            onClick={() => onDownloadItem(item)}
+                          >
+                            <span className="icon-symbol"><UiIcon name="download" /></span>
+                          </button>
+                          <button
+                            className={`btn slim icon-btn ${shareArmedItemPath === item.path ? 'share-armed' : ''}`}
                             title="Share"
                             aria-label="Share"
                             disabled={busy || !permissions.allowDownload}
@@ -815,19 +857,17 @@ function DriveView({
                         </div>
                       ) : (
                         <div className="actions-row">
-                          <a
-                            className={`btn slim icon-btn ${busy || !permissions.allowDownload ? 'disabled-link' : ''}`}
-                            href={downloadHrefFor(item)}
-                            title="Download file"
-                            aria-label="Download file"
-                            onClick={(event) => {
-                              if (busy || !permissions.allowDownload) event.preventDefault()
-                            }}
-                          >
-                            <span className="icon-symbol"><UiIcon name="download" /></span>
-                          </a>
                           <button
                             className="btn slim icon-btn"
+                            title="Download file"
+                            aria-label="Download file"
+                            disabled={busy || !permissions.allowDownload}
+                            onClick={() => onDownloadItem(item)}
+                          >
+                            <span className="icon-symbol"><UiIcon name="download" /></span>
+                          </button>
+                          <button
+                            className={`btn slim icon-btn ${shareArmedItemPath === item.path ? 'share-armed' : ''}`}
                             title="Share"
                             aria-label="Share"
                             disabled={busy || !permissions.allowDownload}
@@ -878,6 +918,7 @@ export default function App() {
   const [items, setItems] = useState([])
   const [selectedPaths, setSelectedPaths] = useState([])
   const [log, setLog] = useState('')
+  const [preparedShare, setPreparedShare] = useState(null)
   const [transfer, setTransfer] = useState({
     active: false,
     label: '',
@@ -898,6 +939,8 @@ export default function App() {
   const busyRef = useRef(false)
   const loadRequestSeqRef = useRef(0)
   const activeUploadXhrRef = useRef(null)
+  const activeDownloadControllersRef = useRef(new Set())
+  const shareFileCacheRef = useRef(new Map())
   const cancelUploadRef = useRef(false)
   const revealTimerRef = useRef(null)
 
@@ -1136,7 +1179,7 @@ export default function App() {
     }
   }
 
-  function cancelUpload() {
+  function cancelTransfer() {
     cancelUploadRef.current = true
     const xhr = activeUploadXhrRef.current
     if (xhr) {
@@ -1145,6 +1188,13 @@ export default function App() {
       } catch (_) {
       }
     }
+    for (const controller of activeDownloadControllersRef.current) {
+      try {
+        controller.abort()
+      } catch (_) {
+      }
+    }
+    activeDownloadControllersRef.current.clear()
   }
 
   function goUp() {
@@ -1236,22 +1286,220 @@ export default function App() {
     }
   }
 
-  function batchDownloadSelected() {
+  async function fetchBlobWithProgress(relativeUrl, options = {}) {
+    const { signal, onProgress } = options
+    const response = await fetch(relativeUrl, {
+      credentials: 'include',
+      cache: 'no-store',
+      signal,
+    })
+    if (!response.ok) {
+      const text = await response.text()
+      let data = null
+      try {
+        data = text ? JSON.parse(text) : null
+      } catch (_) {
+        data = null
+      }
+      throw new Error(friendlyErrorMessage((data && data.error) || text || `HTTP ${response.status}`))
+    }
+    const totalFromHeader = parseContentLength(response.headers.get('content-length'))
+    if (!response.body || typeof response.body.getReader !== 'function') {
+      const blob = await response.blob()
+      if (typeof onProgress === 'function') onProgress(blob.size, totalFromHeader || blob.size)
+      return { response, blob, totalBytes: totalFromHeader || blob.size }
+    }
+    const reader = response.body.getReader()
+    const chunks = []
+    let loaded = 0
+    if (typeof onProgress === 'function') onProgress(0, totalFromHeader)
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      if (!value) continue
+      chunks.push(value)
+      loaded += value.byteLength
+      if (typeof onProgress === 'function') onProgress(loaded, totalFromHeader)
+    }
+    const blob = new Blob(chunks, { type: response.headers.get('content-type') || 'application/octet-stream' })
+    if (typeof onProgress === 'function') onProgress(loaded, totalFromHeader || loaded)
+    return { response, blob, totalBytes: totalFromHeader || loaded }
+  }
+
+  async function downloadItem(item) {
+    if (!item) return
+    if (!permissions.allowDownload) {
+      setError('Downloads are disabled by host settings.')
+      return
+    }
+    const href = downloadHrefForItem(item)
+    const fallbackName = defaultDownloadFileName(item)
+    const totalFiles = 1
+    let knownTotalBytes = item.directory ? 0 : Number(item.size) || 0
+    let lastUiUpdateMs = 0
+    setBusy(true)
+    setError('')
+    setTransfer({
+      active: true,
+      label: `Downloading ${item.name || 'item'}`,
+      loadedBytes: 0,
+      totalBytes: knownTotalBytes,
+      doneFiles: 0,
+      totalFiles,
+      progress: 0,
+    })
+    const controller = new AbortController()
+    activeDownloadControllersRef.current.add(controller)
+    try {
+      const { response, blob, totalBytes } = await fetchBlobWithProgress(href, {
+        signal: controller.signal,
+        onProgress: (loaded, reportedTotal) => {
+          const now = Date.now()
+          if (now - lastUiUpdateMs < 80) return
+          lastUiUpdateMs = now
+          knownTotalBytes = reportedTotal > 0 ? reportedTotal : knownTotalBytes
+          const totalForProgress = knownTotalBytes > 0 ? knownTotalBytes : Math.max(loaded, 1)
+          setTransfer({
+            active: true,
+            label: `Downloading ${item.name || 'item'}`,
+            loadedBytes: loaded,
+            totalBytes: totalForProgress,
+            doneFiles: 0,
+            totalFiles,
+            progress: Math.min(loaded / totalForProgress, 1),
+          })
+        },
+      })
+      const fileName = fileNameFromDisposition(response.headers.get('content-disposition')) || fallbackName
+      saveBlobToDevice(blob, fileName)
+      const completedBytes = totalBytes || blob.size
+      setTransfer({
+        active: false,
+        label: 'Download complete',
+        loadedBytes: completedBytes,
+        totalBytes: completedBytes,
+        doneFiles: totalFiles,
+        totalFiles,
+        progress: 1,
+      })
+      setLog(`Downloaded ${item.name || fileName}`)
+    } catch (err) {
+      if (String(err?.name || '').toLowerCase() === 'aborterror') {
+        setLog('Download cancelled')
+        setTransfer((prev) => ({ ...prev, active: false, label: 'Download cancelled' }))
+        return
+      }
+      setError(friendlyErrorMessage(err?.message || 'Download failed'))
+      setTransfer((prev) => ({ ...prev, active: false, label: 'Download failed' }))
+    } finally {
+      activeDownloadControllersRef.current.delete(controller)
+      setBusy(false)
+    }
+  }
+
+  async function batchDownloadSelected() {
     if (selectedPaths.length === 0) return
     if (!permissions.allowDownload) {
       setError('Downloads are disabled by host settings.')
       return
     }
+    const selectedItems = selectedPaths
+      .map((itemPath) => items.find((item) => item.path === itemPath))
+      .filter(Boolean)
+    const totalFiles = selectedPaths.length
+    let knownTotalBytes = selectedItems
+      .filter((item) => !item.directory)
+      .reduce((sum, item) => sum + (Number(item.size) || 0), 0)
     const params = new URLSearchParams()
     selectedPaths.forEach((itemPath) => params.append('path', itemPath))
     const href = `/api/files/download-zip-batch?${params.toString()}`
-    const link = document.createElement('a')
-    link.href = href
-    link.style.display = 'none'
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    setLog(`Downloading ${selectedPaths.length} selected item(s)`)
+    let lastUiUpdateMs = 0
+    setBusy(true)
+    setError('')
+    setTransfer({
+      active: true,
+      label: `Downloading ${totalFiles} selected item(s)`,
+      loadedBytes: 0,
+      totalBytes: knownTotalBytes,
+      doneFiles: 0,
+      totalFiles,
+      progress: 0,
+    })
+    const controller = new AbortController()
+    activeDownloadControllersRef.current.add(controller)
+    try {
+      const { response, blob, totalBytes } = await fetchBlobWithProgress(href, {
+        signal: controller.signal,
+        onProgress: (loaded, reportedTotal) => {
+          const now = Date.now()
+          if (now - lastUiUpdateMs < 80) return
+          lastUiUpdateMs = now
+          knownTotalBytes = reportedTotal > 0 ? reportedTotal : knownTotalBytes
+          const totalForProgress = knownTotalBytes > 0 ? knownTotalBytes : Math.max(loaded, 1)
+          setTransfer({
+            active: true,
+            label: `Downloading ${totalFiles} selected item(s)`,
+            loadedBytes: loaded,
+            totalBytes: totalForProgress,
+            doneFiles: 0,
+            totalFiles,
+            progress: Math.min(loaded / totalForProgress, 1),
+          })
+        },
+      })
+      const fileName = fileNameFromDisposition(response.headers.get('content-disposition')) || `${totalFiles}-items.zip`
+      saveBlobToDevice(blob, fileName)
+      const completedBytes = totalBytes || blob.size
+      setTransfer({
+        active: false,
+        label: 'Download complete',
+        loadedBytes: completedBytes,
+        totalBytes: completedBytes,
+        doneFiles: totalFiles,
+        totalFiles,
+        progress: 1,
+      })
+      setLog(`Downloaded ${totalFiles} selected item(s)`)
+    } catch (err) {
+      if (String(err?.name || '').toLowerCase() === 'aborterror') {
+        setLog('Download cancelled')
+        setTransfer((prev) => ({ ...prev, active: false, label: 'Download cancelled' }))
+        return
+      }
+      setError(friendlyErrorMessage(err?.message || 'Batch download failed'))
+      setTransfer((prev) => ({ ...prev, active: false, label: 'Download failed' }))
+    } finally {
+      activeDownloadControllersRef.current.delete(controller)
+      setBusy(false)
+    }
+  }
+
+  async function fetchShareFile(descriptor, onProgress) {
+    const key = shareCacheKey(descriptor)
+    const cached = shareFileCacheRef.current.get(key)
+    if (cached) {
+      if (typeof onProgress === 'function') onProgress(cached.totalBytes, cached.totalBytes)
+      return cached
+    }
+    const controller = new AbortController()
+    activeDownloadControllersRef.current.add(controller)
+    try {
+      const { response, blob, totalBytes } = await fetchBlobWithProgress(descriptor.href, {
+        signal: controller.signal,
+        onProgress,
+      })
+      const name = fileNameFromDisposition(response.headers.get('content-disposition')) || descriptor.name || 'download'
+      const type = blob.type || response.headers.get('content-type') || 'application/octet-stream'
+      const result = { file: new File([blob], name, { type }), totalBytes: totalBytes || blob.size }
+      shareFileCacheRef.current.set(key, result)
+      if (shareFileCacheRef.current.size > 40) {
+        const oldest = shareFileCacheRef.current.keys().next().value
+        if (oldest) shareFileCacheRef.current.delete(oldest)
+      }
+      return result
+    } finally {
+      activeDownloadControllersRef.current.delete(controller)
+    }
   }
 
   async function shareUrl(relativeUrl, label) {
@@ -1271,13 +1519,258 @@ export default function App() {
     }
   }
 
+  function buildShareRequestForItem(item) {
+    if (!item) return null
+    const href = downloadHrefForItem(item)
+    const descriptor = {
+      href,
+      name: defaultDownloadFileName(item),
+      size: Number(item.size) || 0,
+      revision: `${item.path || ''}:${Number(item.lastModified) || 0}:${Number(item.size) || 0}`,
+    }
+    return {
+      key: shareCacheKey(descriptor),
+      label: item.name || 'item',
+      descriptors: [descriptor],
+      fallbackUrl: href,
+      targetType: 'item',
+      targetPath: item.path || '',
+      batchKey: '',
+    }
+  }
+
+  function buildShareRequestForSelection(selectedItems, selectedPathsValue) {
+    if (!selectedItems || selectedItems.length === 0) return null
+    const batchKey = (selectedPathsValue || []).join('\n')
+    const hasFolder = selectedItems.some((item) => item.directory)
+    if (hasFolder) {
+      const params = new URLSearchParams()
+      selectedItems.forEach((item) => params.append('path', item.path))
+      const zipHref = `/api/files/download-zip-batch?${params.toString()}`
+      const zipRevision = selectedItems
+        .map((item) => `${item.path || ''}:${Number(item.lastModified) || 0}:${Number(item.size) || 0}`)
+        .join('|')
+      const descriptor = {
+        href: zipHref,
+        name: `${selectedItems.length}-items.zip`,
+        size: 0,
+        revision: zipRevision,
+      }
+      return {
+        key: shareCacheKey(descriptor),
+        label: `${selectedItems.length} selected item(s)`,
+        descriptors: [descriptor],
+        fallbackUrl: zipHref,
+        targetType: 'batch',
+        targetPath: '',
+        batchKey,
+      }
+    }
+
+    const fileItems = selectedItems.filter((item) => !item.directory)
+    const descriptors = fileItems.map((item, index) => ({
+      href: downloadHrefForItem(item),
+      name: defaultDownloadFileName(item, index),
+      size: Number(item.size) || 0,
+      revision: `${item.path || ''}:${Number(item.lastModified) || 0}:${Number(item.size) || 0}`,
+    }))
+    return {
+      key: descriptors.map((descriptor) => shareCacheKey(descriptor)).join('|'),
+      label: `${fileItems.length} selected item(s)`,
+      descriptors,
+      fallbackUrl: '',
+      targetType: 'batch',
+      targetPath: '',
+      batchKey,
+    }
+  }
+
+  async function prepareShareRequest(shareRequest) {
+    if (!shareRequest) return
+    const { descriptors, label } = shareRequest
+    const totalFiles = descriptors.length
+    if (totalFiles === 0) return
+    let doneFiles = 0
+    let lastUiUpdateMs = 0
+    const loadedByIndex = new Map()
+    const totalByIndex = new Map()
+    descriptors.forEach((descriptor, index) => {
+      totalByIndex.set(index, Number(descriptor.size) || 0)
+      loadedByIndex.set(index, 0)
+    })
+    const getTotalBytes = () => Array.from(totalByIndex.values()).reduce((sum, value) => sum + (value || 0), 0)
+    const getLoadedBytes = () => Array.from(loadedByIndex.values()).reduce((sum, value) => sum + (value || 0), 0)
+    const refreshTransfer = (activeLabel, force = false) => {
+      const now = Date.now()
+      if (!force && now - lastUiUpdateMs < 80) return
+      lastUiUpdateMs = now
+      const loadedBytes = getLoadedBytes()
+      const knownTotalBytes = getTotalBytes()
+      const totalBytes = knownTotalBytes > 0 ? knownTotalBytes : Math.max(loadedBytes, 1)
+      setTransfer({
+        active: true,
+        label: activeLabel,
+        loadedBytes,
+        totalBytes,
+        doneFiles,
+        totalFiles,
+        progress: Math.min(loadedBytes / totalBytes, 1),
+      })
+    }
+
+    setPreparedShare(null)
+    setBusy(true)
+    setError('')
+    setTransfer({
+      active: true,
+      label: 'Caching files for share...',
+      loadedBytes: 0,
+      totalBytes: getTotalBytes(),
+      doneFiles: 0,
+      totalFiles,
+      progress: 0,
+    })
+
+    try {
+      if (!navigator.share || typeof File === 'undefined') {
+        throw new Error('This browser does not support file sharing.')
+      }
+      const files = await Promise.all(
+        descriptors.map(async (descriptor, index) => {
+          const result = await fetchShareFile(descriptor, (loaded, reportedTotal) => {
+            const knownTotal = reportedTotal > 0 ? reportedTotal : Number(descriptor.size) || 0
+            totalByIndex.set(index, knownTotal)
+            loadedByIndex.set(index, loaded)
+            refreshTransfer(`Caching files for share (${doneFiles}/${totalFiles})`)
+          })
+          doneFiles += 1
+          totalByIndex.set(index, Math.max(totalByIndex.get(index) || 0, result.totalBytes))
+          loadedByIndex.set(index, result.totalBytes)
+          refreshTransfer(`Caching files for share (${doneFiles}/${totalFiles})`, true)
+          return result.file
+        }),
+      )
+
+      if (files.length === 0) return
+      if (navigator.canShare && !navigator.canShare({ files })) {
+        throw new Error('This browser cannot share these files.')
+      }
+
+      const loadedBytes = getLoadedBytes()
+      const totalBytes = getTotalBytes() || loadedBytes
+      setPreparedShare({
+        ...shareRequest,
+        files,
+        totalBytes,
+        preparedAtMs: Date.now(),
+      })
+      setTransfer({
+        active: false,
+        label: 'Share ready. Tap Share again.',
+        loadedBytes,
+        totalBytes,
+        doneFiles: totalFiles,
+        totalFiles,
+        progress: 1,
+      })
+      setLog(`Share ready for ${label}. Tap Share again.`)
+    } catch (err) {
+      if (String(err?.name || '').toLowerCase() === 'aborterror') {
+        setLog('Share caching cancelled')
+        setTransfer((prev) => ({ ...prev, active: false, label: 'Share caching cancelled' }))
+        return
+      }
+      setError(friendlyErrorMessage(err?.message || 'Failed to cache share files'))
+      setTransfer((prev) => ({ ...prev, active: false, label: 'Share cache failed' }))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function openPreparedShare(shareRequest) {
+    if (!shareRequest) return
+    const armed = preparedShare && preparedShare.key === shareRequest.key ? preparedShare : null
+    if (!armed) {
+      await prepareShareRequest(shareRequest)
+      return
+    }
+    const shareStartMs = Date.now()
+    const preparedCount = armed.files?.length || 0
+    const preparedBytes = Number(armed.totalBytes) || (armed.files || []).reduce((sum, file) => sum + (file.size || 0), 0)
+    try {
+      setBusy(true)
+      setError('')
+      if (!navigator.share || typeof File === 'undefined') {
+        if (armed.fallbackUrl) {
+          await shareUrl(armed.fallbackUrl, armed.label)
+          return
+        }
+        throw new Error('This browser does not support file sharing.')
+      }
+      if (preparedCount === 0) {
+        if (armed.fallbackUrl) {
+          await shareUrl(armed.fallbackUrl, armed.label)
+          return
+        }
+        throw new Error('No cached files available for sharing.')
+      }
+      if (navigator.canShare && !navigator.canShare({ files: armed.files })) {
+        throw new Error('This browser cannot share these files.')
+      }
+
+      await navigator.share({ files: armed.files })
+      setTransfer({
+        active: false,
+        label: 'Share complete',
+        loadedBytes: preparedBytes,
+        totalBytes: preparedBytes,
+        doneFiles: preparedCount,
+        totalFiles: preparedCount,
+        progress: 1,
+      })
+      setLog(`Shared ${armed.label}`)
+      setPreparedShare(null)
+    } catch (err) {
+      if (String(err?.name || '').toLowerCase() === 'aborterror') {
+        setLog('Share cancelled')
+        setTransfer({
+          active: false,
+          label: 'Share ready. Tap Share again.',
+          loadedBytes: preparedBytes,
+          totalBytes: preparedBytes,
+          doneFiles: preparedCount,
+          totalFiles: preparedCount,
+          progress: 1,
+        })
+        return
+      }
+      const rawMessage = String(err?.message || '')
+      if (rawMessage.toLowerCase().includes('request is not allowed')) {
+        const elapsedSec = ((Date.now() - shareStartMs) / 1000).toFixed(1)
+        setError(`Share sheet was blocked ${elapsedSec}s after tap, even though ${preparedCount} file(s) (${formatBytes(preparedBytes)}) were already cached. This is usually browser user-activation policy. Press Share again immediately.`)
+        setTransfer((prev) => ({ ...prev, active: false, label: 'Share blocked' }))
+        return
+      }
+      setError(friendlyErrorMessage(err?.message || 'Share failed'))
+      setTransfer((prev) => ({ ...prev, active: false, label: 'Share failed' }))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function shareItem(item) {
     if (!item) return
     if (!permissions.allowDownload) {
       setError('Downloads are disabled by host settings.')
       return
     }
-    await shareUrl(downloadHrefForItem(item), item.name || 'item')
+    const shareRequest = buildShareRequestForItem(item)
+    if (!shareRequest) return
+    if (preparedShare && preparedShare.key === shareRequest.key) {
+      await openPreparedShare(shareRequest)
+      return
+    }
+    await prepareShareRequest(shareRequest)
   }
 
   async function batchShareSelected() {
@@ -1286,9 +1779,17 @@ export default function App() {
       setError('Downloads are disabled by host settings.')
       return
     }
-    const params = new URLSearchParams()
-    selectedPaths.forEach((itemPath) => params.append('path', itemPath))
-    await shareUrl(`/api/files/download-zip-batch?${params.toString()}`, `${selectedPaths.length} selected item(s)`)
+    const selectedItems = selectedPaths
+      .map((itemPath) => items.find((item) => item.path === itemPath))
+      .filter(Boolean)
+    if (selectedItems.length === 0) return
+    const shareRequest = buildShareRequestForSelection(selectedItems, selectedPaths)
+    if (!shareRequest) return
+    if (preparedShare && preparedShare.key === shareRequest.key) {
+      await openPreparedShare(shareRequest)
+      return
+    }
+    await prepareShareRequest(shareRequest)
   }
 
   async function createFolder() {
@@ -1400,6 +1901,9 @@ export default function App() {
     busyRef.current = busy
   }, [busy])
 
+  const shareArmedItemPath = preparedShare?.targetType === 'item' ? preparedShare.targetPath : ''
+  const shareArmedBatchKey = preparedShare?.targetType === 'batch' ? preparedShare.batchKey : ''
+
   useEffect(() => {
     if (typeof window === 'undefined' || typeof document === 'undefined') return undefined
     const root = document.documentElement
@@ -1475,10 +1979,13 @@ export default function App() {
           onToggleSelectPath={toggleSelectPath}
           onToggleSelectByLongPress={toggleSelectByLongPress}
           onToggleSelectAll={toggleSelectAll}
+          shareArmedItemPath={shareArmedItemPath}
+          shareArmedBatchKey={shareArmedBatchKey}
+          onDownloadItem={downloadItem}
           onBatchDownload={batchDownloadSelected}
           onBatchShare={batchShareSelected}
           onBatchDelete={batchDeleteSelected}
-          onCancelUpload={cancelUpload}
+          onCancelTransfer={cancelTransfer}
           onShareItem={shareItem}
         />
       )}
