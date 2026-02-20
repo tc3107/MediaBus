@@ -61,7 +61,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             storedDevices.map { device -> PairedDeviceStatus(device = device, presence = DevicePresence.Disconnected) }
         }
 
-        val localIps = NetworkAddressResolver.listPrivateIpv4Addresses().mapNotNull { it.hostAddress }
+        val localIps = NetworkAddressResolver.listBindablePrivateIpv4Addresses(context).mapNotNull { it.hostAddress }
         val availableIps = (serviceState.availableIps + localIps).distinct()
 
         HostControlUiState(

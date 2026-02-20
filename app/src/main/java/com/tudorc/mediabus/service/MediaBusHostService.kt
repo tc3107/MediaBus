@@ -424,9 +424,9 @@ class MediaBusHostService : LifecycleService() {
     }
 
     private fun chooseBindIp(): InetAddress? {
-        val addresses = NetworkAddressResolver.listPrivateIpv4Addresses()
+        val addresses = NetworkAddressResolver.listBindablePrivateIpv4Addresses(applicationContext)
         if (addresses.isEmpty()) {
-            ServerLogger.w(LOG_COMPONENT, "No private IPv4 addresses available for binding")
+            ServerLogger.w(LOG_COMPONENT, "No LAN IPv4 addresses available for binding")
             return null
         }
 
@@ -450,7 +450,7 @@ class MediaBusHostService : LifecycleService() {
     }
 
     private fun localIps(): List<String> {
-        return NetworkAddressResolver.listPrivateIpv4Addresses()
+        return NetworkAddressResolver.listBindablePrivateIpv4Addresses(applicationContext)
             .mapNotNull { it.hostAddress }
     }
 
