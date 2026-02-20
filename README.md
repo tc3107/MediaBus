@@ -9,10 +9,11 @@
 </p>
 
 ## Overview
-MediaBus turns your phone into a secure local file host. Start the server, scan the QR code, and manage transfers from a browser over your LAN.
+MediaBus turns your phone into a secure local file host. Start the server, scan the QR code, and manage transfers from a browser over your LAN or phone hotspot.
 
 ## Features
 - HTTPS local web server with QR-based access
+- Works over LAN and phone hotspot networks
 - Pairing flow for client authorization
 - Upload, download, delete, and folder operations
 - Permission toggles (upload/download/delete/hidden files)
@@ -30,6 +31,8 @@ Releases are published on this GitHub page.
 ## Security Notes
 - Intended for trusted local networks.
 - Pairing/session controls are enforced in-app.
+- Your browser may show an "insecure" or "not private" warning on first connect. This is expected: MediaBus uses HTTPS on a local IP/hostname with a local certificate that is not publicly trusted by browser certificate authorities.
+- To continue, verify you are connecting to the address shown in the app/QR code, then use your browser's advanced option to proceed to the site. This only needs to be done once. 
 - See `PRIVACY.md` for data-handling details.
 
 ## License
