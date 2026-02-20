@@ -2,7 +2,6 @@ package com.tudorc.mediabus.util
 
 import org.json.JSONObject
 import java.security.MessageDigest
-import java.util.Base64
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 
@@ -40,10 +39,10 @@ class TokenSigner(private val secret: ByteArray) {
     }
 
     private fun base64Encode(bytes: ByteArray): String {
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
+        return Base64Url.encode(bytes)
     }
 
     private fun base64Decode(text: String): ByteArray {
-        return Base64.getUrlDecoder().decode(text)
+        return Base64Url.decode(text)
     }
 }

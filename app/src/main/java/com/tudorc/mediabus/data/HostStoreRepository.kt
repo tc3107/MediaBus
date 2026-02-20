@@ -9,13 +9,13 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.tudorc.mediabus.model.HostSettings
 import com.tudorc.mediabus.model.PairedDevice
+import com.tudorc.mediabus.util.Base64Url
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import org.json.JSONArray
 import org.json.JSONObject
 import java.security.SecureRandom
-import java.util.Base64
 
 private val Context.hostStore: DataStore<Preferences> by preferencesDataStore(name = "mediabus_store")
 
@@ -91,11 +91,11 @@ class HostStoreRepository(private val appContext: Context) {
     suspend fun getOrCreateSigningSecret(): ByteArray {
         val existing = store.data.first()[signingSecretKey]
         if (!existing.isNullOrBlank()) {
-            return Base64.getUrlDecoder().decode(existing)
+            return Base64Url.decode(existing)
         }
 
         val generated = ByteArray(32).also { random.nextBytes(it) }
-        val encoded = Base64.getUrlEncoder().withoutPadding().encodeToString(generated)
+        val encoded = Base64Url.encode(generated)
         store.edit { preferences ->
             preferences[signingSecretKey] = encoded
         }

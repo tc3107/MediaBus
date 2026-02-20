@@ -87,6 +87,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import kotlin.math.cos
 import kotlin.math.sin
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.createBitmap
+import androidx.core.graphics.set
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.zxing.BarcodeFormat
@@ -840,7 +842,7 @@ private suspend fun playAddressOpenHaptic(context: Context) {
         vibrator.vibrate(ramp)
         delay(220)
         vibrator.cancel()
-        vibrator.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_HEAVY_CLICK))
+        vibrator.vibrate(VibrationEffect.createOneShot(35L, VibrationEffect.DEFAULT_AMPLITUDE))
     } else {
         @Suppress("DEPRECATION")
         vibrator.vibrate(120)
@@ -998,18 +1000,14 @@ private fun qrBitmap(
             size,
             size,
         )
-        Bitmap.createBitmap(size, size, Bitmap.Config.RGB_565).apply {
+        createBitmap(size, size, Bitmap.Config.RGB_565).apply {
             for (x in 0 until size) {
                 for (y in 0 until size) {
-                    setPixel(
-                        x,
-                        y,
-                        if (matrix[x, y]) {
-                            if (reverseContrast) android.graphics.Color.WHITE else android.graphics.Color.BLACK
-                        } else {
-                            if (reverseContrast) android.graphics.Color.BLACK else android.graphics.Color.WHITE
-                        },
-                    )
+                    this[x, y] = if (matrix[x, y]) {
+                        if (reverseContrast) android.graphics.Color.WHITE else android.graphics.Color.BLACK
+                    } else {
+                        if (reverseContrast) android.graphics.Color.BLACK else android.graphics.Color.WHITE
+                    }
                 }
             }
         }

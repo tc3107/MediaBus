@@ -5,12 +5,9 @@
     <string name="server_controls_title">Server Controls</string>
     <string name="stats_title">Transfer Stats</string>
     <string name="stats_idle">No transfer in progress</string>
-    <string name="shared_folder_title">Shared Folder</string>
-    <string name="paired_devices_title">Paired Devices</string>
 
     <string name="start_server">Start Server</string>
     <string name="stop_server">Stop Server</string>
-    <string name="show_address">Server Address</string>
     <string name="server_address">Server Address</string>
     <string name="scan_pair_qr">Scan Pair QR</string>
     <string name="enter_pair_code">Enter Pair Code</string>
@@ -21,29 +18,16 @@
     <string name="cancel">Cancel</string>
     <string name="close">Close</string>
     <string name="select_folder">Select Folder</string>
-    <string name="revoke">Revoke</string>
-
-    <string name="mdns_title">Local Access (mDNS / Bonjour)</string>
-    <string name="mdns_online_hint">Clients can open %1$s</string>
-    <string name="mdns_offline_hint">Server offline. Start server to advertise mediabus.local</string>
-    <string name="current_ip_hint">Current local IP: %1$s</string>
-    <string name="select_bind_ip">Select bind IP (LAN/hotspot)</string>
 
     <string name="show_hidden_files">Show hidden</string>
     <string name="allow_upload">Allow upload</string>
     <string name="allow_download">Allow download</string>
     <string name="allow_delete">Allow delete</string>
     <string name="permissions_title">Permissions</string>
-    <string name="permissions_show">Show</string>
-    <string name="permissions_hide">Hide</string>
-    <string name="no_paired_devices">No paired devices yet</string>
-    <string name="last_seen_label">Last connected: %1$s</string>
 
     <string name="direction_uploading">Uploading</string>
     <string name="direction_downloading">Downloading</string>
     <string name="direction_transferring">Transferring</string>
-    <string name="transfer_progress_percent">%1$d%% complete</string>
-    <string name="transfer_progress_files">%1$d/%2$d files</string>
     <string name="transfer_progress_overall">Overall: %1$s / %2$s</string>
     <string name="transfer_progress_current_file">Current file: %1$s / %2$s</string>
 
@@ -51,12 +35,10 @@
     <string name="pair_not_found">Pair request not found</string>
     <string name="pair_expired">Pair code expired</string>
     <string name="pair_service_offline">Server must be online to pair</string>
-    <string name="device_revoked">Device revoked</string>
     <string name="camera_permission_required">Camera permission is required to scan QR codes.</string>
     <string name="unable_to_open_url">Unable to open URL</string>
 
     <string name="qr_content_description">QR code for MediaBus local address</string>
-    <string name="qr_unavailable">QR code unavailable</string>
     <string name="webserver_status_prefix">Webserver accessibility:</string>
     <string name="webserver_status_online">Online</string>
     <string name="webserver_status_offline">Offline</string>

@@ -7,6 +7,7 @@ import com.google.zxing.BarcodeFormat
 import com.google.zxing.MultiFormatWriter
 import com.tudorc.mediabus.model.TransferDirection
 import com.tudorc.mediabus.runtime.HostRuntimeController
+import com.tudorc.mediabus.util.Base64Url
 import com.tudorc.mediabus.util.ServerLogger
 import fi.iki.elonen.NanoHTTPD
 import fi.iki.elonen.NanoHTTPD.IHTTPSession
@@ -25,7 +26,6 @@ import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.util.Locale
 import java.util.UUID
-import java.util.Base64
 import java.util.concurrent.Executors
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
@@ -1027,7 +1027,7 @@ class MediaBusHttpServer(
     }
 
     private fun randomToken(size: Int): String {
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(UUID.randomUUID().toString().toByteArray())
+        return Base64Url.encode(UUID.randomUUID().toString().toByteArray())
             .take(size)
     }
 

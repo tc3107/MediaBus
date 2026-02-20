@@ -1,11 +1,13 @@
 package com.tudorc.mediabus.service
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
 import android.net.LinkProperties
@@ -13,6 +15,8 @@ import android.net.Network
 import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
+import androidx.core.net.toUri
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import com.tudorc.mediabus.R
@@ -158,6 +162,7 @@ class MediaBusHostService : LifecycleService() {
         flags: Int,
         startId: Int,
     ): Int {
+        super.onStartCommand(intent, flags, startId)
         ServerLogger.i(LOG_COMPONENT, "onStartCommand action=${intent?.action ?: "null"} startId=$startId")
         when (intent?.action) {
             ACTION_START -> {
@@ -173,7 +178,7 @@ class MediaBusHostService : LifecycleService() {
                     return Service.START_NOT_STICKY
                 }
 
-                val folderUri = Uri.parse(folderUriString)
+                val folderUri = folderUriString.toUri()
                 ServerLogger.i(LOG_COMPONENT, "Start requested for folderUri=$folderUri")
                 startInForeground("Starting MediaBus server...")
                 _state.value = _state.value.copy(
@@ -464,16 +469,19 @@ class MediaBusHostService : LifecycleService() {
     }
 
     private fun stopForegroundCompat() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            stopForeground(Service.STOP_FOREGROUND_REMOVE)
-        } else {
-            @Suppress("DEPRECATION")
-            stopForeground(true)
-        }
+        stopForeground(Service.STOP_FOREGROUND_REMOVE)
     }
 
     private fun updateForegroundNotification(contentText: String) {
         ServerLogger.d(LOG_COMPONENT, "Updating foreground notification: $contentText")
+        if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            ServerLogger.w(LOG_COMPONENT, "Skipping notification update; POST_NOTIFICATIONS not granted")
+            return
+        }
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         manager.notify(NOTIFICATION_ID, buildNotification(contentText))
     }

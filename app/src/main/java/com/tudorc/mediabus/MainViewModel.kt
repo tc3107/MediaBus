@@ -2,6 +2,7 @@ package com.tudorc.mediabus
 
 import android.app.Application
 import android.net.Uri
+import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -158,7 +159,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun extractToken(payload: String): String? {
         if (payload.isBlank()) return null
-        val uri = runCatching { Uri.parse(payload.trim()) }.getOrNull() ?: return null
+        val uri = runCatching { payload.trim().toUri() }.getOrNull() ?: return null
         return uri.getQueryParameter("token")
     }
 }

@@ -6,6 +6,7 @@ import com.tudorc.mediabus.model.PairedDevice
 import com.tudorc.mediabus.model.PairedDeviceStatus
 import com.tudorc.mediabus.model.TransferDirection
 import com.tudorc.mediabus.model.TransferSummary
+import com.tudorc.mediabus.util.Base64Url
 import com.tudorc.mediabus.util.ServerLogger
 import com.tudorc.mediabus.util.UserAgentParser
 import kotlinx.coroutines.CoroutineScope
@@ -16,7 +17,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.security.SecureRandom
-import java.util.Base64
 import java.util.UUID
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.math.max
@@ -742,7 +742,7 @@ class HostRuntimeController(
     private fun randomUrlSafeToken(byteCount: Int): String {
         val bytes = ByteArray(byteCount)
         random.nextBytes(bytes)
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
+        return Base64Url.encode(bytes)
     }
 
     private fun now(): Long = System.currentTimeMillis()
