@@ -743,6 +743,11 @@ function DriveView({
                   </tr>
                 ))
               )}
+              {!pathLoading && sortedItems.length === 0 && (
+                <tr className="loading-row">
+                  <td colSpan={visibleColumnCount}>This folder is empty.</td>
+                </tr>
+              )}
               {sortedItems.map((item) => (
                 item.directory ? (
                   <tr className={selectedSet.has(item.path) ? 'selected-row' : ''} key={item.path} {...longPressBindRow(item.path)}>
@@ -1066,7 +1071,7 @@ export default function App() {
         setItems(nextItems)
       } else {
         let shown = 0
-        const step = 24
+        const step = 5
         const revealNext = () => {
           if (requestSeq !== loadRequestSeqRef.current) return
           shown = Math.min(shown + step, nextItems.length)
