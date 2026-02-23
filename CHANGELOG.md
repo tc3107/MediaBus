@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented in this file.
 
+## v1.1.1 - 2026-02-23
+
+### Changed
+- App version was bumped to `v1.1.1` (`app.versionCode=3`).
+- Empty folders in the web client now show an explicit "This folder is empty." table row instead of a blank list.
+- Progressive file-list reveal in the web client was tuned from 24 items per step to 5 items per step.
+- Build configuration now uses OpenJDK 21 at `/usr/lib/jvm/java-21-openjdk-amd64` and adds `-Djdk.lang.Process.launchMechanism=vfork` to Gradle daemon JVM args.
+- Gradle settings now include the `org.gradle.toolchains.foojay-resolver-convention` plugin and generated daemon toolchain metadata (`gradle/gradle-daemon-jvm.properties`).
+- Android dependency constraints were disabled (`android.dependency.useConstraints=false`).
+
+### Fixed
+- Server address dialog now enforces an explicit `https://` scheme for both the clickable link text and generated QR code payload.
+
 ## v1.1.0 - 2026-02-20
 
 ### Added
