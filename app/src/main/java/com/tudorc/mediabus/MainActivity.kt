@@ -975,6 +975,7 @@ private fun AddressDialog(
 ) {
     val uriHandler = LocalUriHandler.current
     val context = LocalContext.current
+    val secureUrl = remember(url) { withExplicitHttps(url) }
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
@@ -993,13 +994,13 @@ private fun AddressDialog(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(
-                    text = url,
+                    text = secureUrl,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.primary,
                     textDecoration = TextDecoration.Underline,
                     modifier = Modifier.clickable {
                         MediaBusHaptics.performTap(context)
-                        runCatching { uriHandler.openUri(url) }.onFailure {
+                        runCatching { uriHandler.openUri(secureUrl) }.onFailure {
                             Toast.makeText(
                                 context,
                                 context.getString(R.string.unable_to_open_url),
@@ -1016,10 +1017,16 @@ private fun AddressDialog(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                QrCode(url = url)
+                QrCode(url = secureUrl)
             }
         },
     )
+}
+
+private fun withExplicitHttps(rawUrl: String): String {
+    val trimmed = rawUrl.trim()
+    if (trimmed.isEmpty()) return "https://"
+    return "https://${trimmed.substringAfter("://", trimmed)}"
 }
 
 @Composable
